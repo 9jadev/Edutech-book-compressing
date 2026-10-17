@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar System Mechanics — Interactive 3D Simulation</title>
+    
+    <!-- Tailwind CSS 3.4.17 -->
+    <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+    
+    <!-- KaTeX 0.16.8 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    
+    <!-- Three.js r128 & Addons -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+    
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #030712; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        #css2d-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+        .planet-badge { pointer-events: auto; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); display: flex; align-items: center; gap: 6px; }
+        .planet-badge:hover { background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.8); transform: scale(1.05); color: #ffffff; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+        ::-webkit-scrollbar-thumb { background: rgba(56, 189, 248, 0.3); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(56, 189, 248, 0.6); }
+    </style>
+</head>
+<body class="text-slate-100 h-screen w-screen overflow-hidden select-none">
+
+    <!-- 3D Canvas Container -->
+    <div id="webgl-container" class="absolute inset-0 z-0"></div>
+    <div id="css2d-container"></div>
+
+    <!-- Header / Title Overlay -->
+    <header class="absolute top-4 left-4 z-20 pointer-events-none flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center backdrop-blur-md text-sky-400 font-bold text-lg shadow-lg shadow-sky-950/50">
+            ☀️
+        </div>
+        <div>
+            <h1 class="text-xl font-bold tracking-wider text-white drop-shadow-md">SOLAR SYSTEM MECHANICS</h1>
+            <p class="text-xs text-sky-400 font-medium tracking-wide">Keplerian Orbits & Gravitational Dynamics</p>
+        </div>
+    </header>
+
+    <!-- Top Right Controls: Play Journey & Audio -->
+    <div class="absolute top-4 right-4 z-20 flex items-center gap-3">
+        <button id="btn-journey" class="px-4 py-2 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-sky-950/50 border border-sky-400/30 backdrop-blur-md transition-all flex items-center gap-2">
+            <span id="journey-icon">▶</span> <span id="journey-text">Start Play Journey</span>
+        </button>
+        <button id="btn-audio" class="w-10 h-10 rounded-xl bg-slate-900/80 border border-slate-700/60 flex items-center justify-center backdrop-blur-md text-slate-300 hover:text-white hover:border-sky-500/50 transition-all shadow-lg" title="Toggle Narration">
+            🔊
+        </button>
+    </div>
+
+    <!-- Bottom Control Panel: Real-Time Physics & Parameters -->
+    <div class="absolute bottom-6 left-6 right-6 md:left-auto md:right-6 md:w-96 z-20 bg-slate-900/85 backdrop-blur-xl border border-slate-800/80 rounded-2xl p-5 shadow-2xl shadow-black/80 flex flex-col gap-4">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <h3 class="text-sm font-bold text-sky-400 uppercase tracking-wider flex items-center gap-2">
+                <span>⚙️</span> Simulation Parameters
+            </h3>
+            <button id="btn-reset-view" class="text-xs text-slate-400 hover:text-sky-300 transition-colors bg-slate-800/60 px-2.5 py-1 rounded-lg border border-slate-700/50">
+                Reset View
+            </button>
+        </div>
+
+        <!-- Sliders -->
+        <div class="flex flex-col gap-3.5">
+            <div>
+                <div class="flex justify-between text-xs font-medium mb-1.5">
+                    <span class="text-slate-300">Orbital Speed</span>
+                    <span id="val-speed" class="text-sky-400 font-mono">1.0x</span>
+                </div>
+                <input id="slider-speed" type="range" min="0" max="5" step="0.1" value="1" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-500">
+            </div>
+
+            <div>
+                <div class="flex justify-between text-xs font-medium mb-1.5">
+                    <span class="text-slate-300">Gravitational Constant ($G$)</span>
+                    <span id="val-gravity" class="text-sky-400 font-mono">1.0</span>
+                </div>
+                <input id="slider-gravity" type="range" min="0.1" max="3.0" step="0.1" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-500">
+            </div>
+
+            <div class="flex items-center justify-between pt-1">
+                <span class="text-xs font-medium text-slate-300">Show Orbital Trails</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input id="toggle-trails" type="checkbox" checked class="sr-only peer">
+                    <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-500"></div>
+                </label>
+            </div>
+        </div>
+
+        <!-- Live Math Readout -->
+        <div class="bg-slate-950/70 rounded-xl p-3 border border-slate-800/80 flex flex-col gap-1.5">
+            <div class="text-[10px] uppercase font-bold text-slate-500 tracking-wider">Kepler's Third Law Verification</div>
+            <div id="math-readout" class="text-xs font-mono text-sky-300 overflow-x-auto whitespace-nowrap">
+                $T^2 = \frac{4\pi^2}{G M} a^3$
+            </div>
+        </div>
+    </div>
+
+    <!-- Stage Progress Bar (for Guided Journey) -->
+    <div id="journey-bar" class="absolute bottom-6 left-6 right-96 z-20 hidden md:flex items-center gap-2 bg-slate-900/85 backdrop-blur-xl border border-slate-800/80 rounded-2xl px-5 py-3 shadow-2xl">
+        <div class="flex items-center justify-between w-full mb-1 absolute -top-7 left-0 px-2">
+            <span id="journey-stage-title" class="text-xs font-bold text-sky-400">Stage 1: The Sun & Solar Mass</span>
+            <span id="journey-stage-counter" class="text-xs text-slate-400 font-mono">1 / 5</span>
+        </div>
+        <div class="flex items-center gap-2 w-full" id="stage-dots">
+            <!-- Dots generated dynamically -->
+        </div>
+        <button id="journey-next" class="ml-4 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold rounded-xl transition-all whitespace-nowrap">
+            Next Stage ➔
+        </button>
+    </div>
+
+    <!-- Scientific Inspection Modal -->
+    <div id="inspection-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md opacity-0 pointer-events-none transition-all duration-300">
+        <div class="bg-slate-900/95 border border-sky-500/30 rounded-3xl max-w-lg w-full p-6 shadow-2xl shadow-sky-950/50 backdrop-blur-xl flex flex-col gap-5 transform scale-95 transition-all duration-300 relative">
+            
+            <!-- Close Button -->
+            <button id="modal-close" class="absolute top-5 right-5 text-slate-400 hover:text-white bg-slate-800/60 hover:bg-slate-800 w-8 h-8 rounded-full flex items-center justify-center transition-colors">
+                ✕
+            </button>
+
+            <!-- Modal Header -->
+            <div class="flex items-center gap-3">
+                <div id="modal-icon" class="w-12 h-12 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-2xl shadow-inner">
+                    ☀️
+                </div>
+                <div>
+                    <h2 id="modal-title" class="text-xl font-bold text-white tracking-wide">The Sun</h2>
+                    <p id="modal-subtitle" class="text-xs text-sky-400 font-medium">Solar Core & Gravitational Anchor</p>
+                </div>
+            </div>
+
+            <!-- Formula Box -->
+            <div class="bg-slate-950/80 rounded-2xl p-4 border border-slate-800/80 flex items-center justify-center overflow-x-auto">
+                <div id="modal-formula" class="text-sm text-sky-200">
+                    <!-- KaTeX formula -->
+                </div>
+            </div>
+
+            <!-- Description -->
+            <p id="modal-desc" class="text-sm text-slate-300 leading-relaxed">
+                Loading description...
+            </p>
+
+            <!-- SI Units Table -->
+            <div class="border border-slate-800 rounded-2xl overflow-hidden bg-slate-950/40">
+                <div class="bg-slate-900/80 px-4 py-2.5 border-b border-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider flex justify-between">
+                    <span>Physical Variable</span>
+                    <span>SI Value & Unit</span>
+                </div>
+                <div id="modal-table" class="divide-y divide-slate-800/60 max-h-40 overflow-y-auto">
+                    <!-- Table rows injected -->
+                </div>
+            </div>
+
+            <!-- Modal Footer: Speak Button -->
+            <div class="flex items-center justify-between pt-2">
+                <span class="text-xs text-slate-500">Click anywhere outside to close</span>
+                <button id="modal-speak" class="px-4 py-2 bg-sky-600/20 hover:bg-sky-600/30 border border-sky-500/40 text-sky-300 text-xs font-semibold rounded-xl transition-all flex items-center gap-2">
+                    🔊 Read Aloud
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Simulation Script -->
+    <script>
+        // --- 1. DATA STRUCTURES: COMPONENTS & STAGES ---
+        const COMPONENTS = {
+            sun: {
+                id: 'sun',
+                title: 'The Sun (Solar Mass)',
+                subtitle: 'Gravitational Center & Fusion Engine',
+                icon: '☀️',
+                formula: 'F_g = G \\frac{M_\\odot m}{r^2}',
+                description: 'The Sun contains 99.86% of all mass in the Solar System. Its immense gravitational pull dictates the Keplerian orbits of all planets, dwarf planets, and asteroids while generating energy through core nuclear fusion.',
+                variables: [
+                    { name: 'Solar Mass ($M_\\odot$)', value: '$1.989 \\times 10^{30} \\text{ kg}$' },
+                    { name: 'Core Temperature ($T$)', value: '$1.5 \\times 10^7 \\text{ K}$' },
+                    { name: 'Gravitational Parameter ($\\mu$)', value: '$1.327 \\times 10^{20} \\text{ m}^3\\text{s}^{-2}$' }
+                ],
+                narration: 'The Sun holds ninety-nine point eight six percent of all mass in the solar system. Its immense gravitational field anchors all planetary motion.'
+            },
+            mercury: {
+                id: 'mercury',
+                title: 'Mercury',
+                subtitle: 'The Swift Inner Planet',
+                icon: '☿',
+                formula: 'v = \\sqrt{G M \\left(\\frac{2}{r} - \\frac{1}{a}\\right)}',
+                description: 'Mercury is the smallest and closest planet to the Sun. It experiences extreme temperature fluctuations and high orbital eccentricity, moving significantly faster when closest to perihelion.',
+                variables: [
+                    { name: 'Semi-major Axis ($a$)', value: '$5.79 \\times 10^{10} \\text{ m} \\, (0.387 \\text{ AU})$' },
+                    { name: 'Orbital Period ($T$)', value: '$87.97 \\text{ Earth days}$' },
+                    { name: 'Orbital Eccentricity ($e$)', value: '$0.205$' }
+                ],
+                narration: 'Mercury, the closest planet to the Sun, zips along its highly eccentric orbit at breakneck speeds, perfectly demonstrating Kepler's laws.'
+            },
+            venus: {
+                id: 'venus',
+                title: 'Venus',
+                subtitle: 'The Greenhouse World',
+                icon: '♀',
+                formula: 'T_{\\text{eff}} = T_0 (1 + \\frac{3}{4} \\tau)^{1/4}',
+                description: 'Venus is Earths planetary twin in size but features a runaway greenhouse effect driven by a dense carbon dioxide atmosphere, resulting in surface temperatures exceeding 735 Kelvin.',
+                variables: [
+                    { name: 'Semi-major Axis ($a$)', value: '$1.08 \\times 10^{11} \\text{ m} \\, (0.723 \\text{ AU})$' },
+                    { name: 'Orbital Period ($T$)', value: '$224.7 \\text{ Earth days}$' },
+                    { name: 'Surface Temperature', value: '$737 \\text{ K}$' }
+                ],
+                narration: 'Venus features a runaway greenhouse effect that traps heat, creating a scorching world beneath thick clouds of sulfuric acid.'
+            },
+            earth: {
+                id: 'earth',
+                title: 'Earth',
+                subtitle: 'The Cradle of Life',
+                icon: '🌍',
+                formula: 'L = m \\, \\mathbf{r} \\times \\mathbf{v}',
+                description: 'Earth is the third planet from the Sun and the only astronomical object known to harbor life. Its orbital velocity and axial tilt create stable seasonal cycles and liquid surface water.',
+                variables: [
+                    { name: 'Semi-major Axis ($a$)', value: '$1.496 \\times 10^{11} \\text{ m} \\, (1.0 \\text{ AU})$' },
+                    { name: 'Orbital Period ($T$)', value: '$365.25 \\text{ days}$' },
+                    { name: 'Orbital Velocity ($v$)', value: '$29.78 \\text{ km/s}$' }
+                ],
+                narration: 'Earth orbits at an ideal distance from the Sun known as the Goldilocks zone, allowing liquid water and complex life to flourish.'
+            },
+            mars: {
+                id: 'mars',
+                title: 'Mars',
+                subtitle: 'The Red Planet',
+                icon: '♂',
+                formula: 'g = \\frac{G M}{R^2}',
+                description: 'Mars is the fourth planet from the Sun, sporting iron oxide dust that gives it a reddish hue. It features ancient riverbeds, towering volcanoes like Olympus Mons, and two captured asteroid moons.',
+                variables: [
+                    { name: 'Semi-major Axis ($a$)', value: '$2.28 \\times 10^{11} \\text{ m} \\, (1.524 \\text{ AU})$' },
+                    { name: 'Orbital Period ($T$)', value: '$687 \\text{ Earth days}$' },
+                    { name: 'Surface Gravity ($g$)', value: '$3.72 \\text{ m/s}^2$' }
+                ],
+                narration: 'Mars, the red planet, holds geological secrets of an ancient past with river valleys and the largest volcano in the solar system.'
+            },
+            jupiter: {
+                id: 'jupiter',
+                title: 'Jupiter',
+                subtitle: 'The Gas Giant Monarch',
+                icon: '♃',
+                formula: 'E = \\frac{1}{2}mv^2 - \\frac{GMm}{r}',
+                description: 'Jupiter is the largest planet in the solar system, containing twice the mass of all other planets combined. Its iconic Great Red Spot is a giant storm larger than Earth.',
+                variables: [
+                    { name: 'Semi-major Axis ($a$)', value: '$7.78 \\times 10^{11} \\text{ m} \\, (5.20 \\text{ AU})$' },
+                    { name: 'Orbital Period ($T$)', value: '$11.86 \\text{ Earth years}$' },
+                    { name: 'Mass ($M$)', value: '$1.898 \\times 10^{27} \\text{ kg}$' }
+                ],
+                narration: 'Jupiter dominates the outer solar system as a colossal gas giant whose immense gravity shapes asteroid belts and protects inner planets.'
+            },
+            saturn: {
+                id: 'saturn',
+                title: 'Saturn',
+                subtitle: 'The Ringed Planet',
+                icon: '♄',
+                formula: '\\tau_{\\text{ring}} = \\sqrt{\\frac{r^3}{GM}}',
+                description: 'Saturn is renowned for its dazzling system of icy rings composed of billions of particles ranging from micrometers to meters in size, orbiting its equatorial plane.',
+                variables: [
+                    { name: 'Semi-major Axis ($a$)', value: '$1.43 \\times 10^{12} \\text{ m} \\, (9.58 \\text{ AU})$' },
+                    { name: 'Orbital Period ($T$)', value: '$29.46 \\text{ Earth years}$' },
+                    { name: 'Ring System Width', value: '$282,000 \\text{ km}$' }
+                ],
+                narration: 'Saturn dazzles with its majestic ring system, composed of countless chunks of water ice orbiting in perfect harmony.'
+            },
+            uranus: {
+                id: 'uranus',
+                title: 'Uranus',
+                subtitle: 'The Tilted Ice Giant',
+                icon: '♅',
+                formula: '\\theta_{\\text{tilt}} = 97.77^\\circ',
+                description: 'Uranus is an ice giant with a unique extreme axial tilt of nearly 98 degrees, causing its seasons to last over 20 Earth years while rotating on its side.',
+                variables: [
+                    { name: 'Semi-major Axis ($a$)', value: '$2.87 \\times 10^{12} \\text{ m} \\, (19.22 \\text{ AU})$' },
+                    { name: 'Orbital Period ($T$)', value: '$84.01 \\text{ Earth years}$' },
+                    { name: 'Axial Tilt', value: '$97.77^\\circ$' }
+                ],
+                narration: 'Uranus rolls along its orbit spinning entirely on its side, a strange ice giant tilted ninety-eight degrees relative to the solar plane.'
+            },
+            neptune: {
+                id: 'neptune',
+                title: 'Neptune',
+                subtitle: 'The Windiest World',
+                icon: '♆',
+                formula: 'v_{\\text{wind}} > 2100 \\text{ km/h}',
+                description: 'Neptune is the farthest known major planet in the solar system. It features supersonic winds, dynamic dark storms, and an intense azure coloration imparted by atmospheric methane.',
+                variables: [
+                    { name: 'Semi-major Axis ($a$)', value: '$4.50 \\times 10^{12} \\text{ m} \\, (30.05 \\text{ AU})$' },
+                    { name: 'Orbital Period ($T$)', value: '$164.8 \\text{ Earth years}$' },
+                    { name: 'Surface Wind Speed', value: '$2,100 \\text{ km/h}$' }
+                ],
+                narration: 'Neptune rounds out the major planets, whipping up supersonic winds and deep azure storms in the freezing outer reaches.'
+            }
+        };
+
+        const STAGES = [
+            {
+                title: "The Sun & Solar Core",
+                subtitle: "Gravitational Center",
+                target: { x: 0, y: 0, z: 0 },
+                cameraPos: { x: 0, y: 15, z: 35 },
+                highlight: 'sun',
+                narration: "Welcome to Solar System Mechanics. At the absolute center lies the Sun, commanding ninety-nine percent of the solar system's mass and driving all orbital dynamics."
+            },
+            {
+                title: "Inner Terrestrial Worlds",
+                subtitle: "Mercury, Venus, Earth & Mars",
+                target: { x: 12, y: 0, z: 0 },
+                cameraPos: { x: 15, y: 25, z: 45 },
+                highlight: 'earth',
+                narration: "The inner terrestrial worlds—Mercury, Venus, Earth, and Mars—are rocky planets forged close to the Sun where solar heat swept away lighter gases."
+            },
+            {
+                title: "Earth's Orbital Mechanics",
+                subtitle: "Kepler's Laws in Action",
+                target: { x: 18, y: 0, z: 0 },
+                cameraPos: { x: 18, y: 10, z: 30 },
+                highlight: 'earth',
+                narration: "Earth orbits at one astronomical unit, maintaining a stable trajectory where kinetic energy and gravitational potential energy remain in delicate balance."
+            },
+            {
+                title: "Gas Giant Titans",
+                subtitle: "Jupiter & Saturn",
+                target: { x: 38, y: 0, z: 0 },
+                cameraPos: { x: 38, y: 30, z: 70 },
+                highlight: 'jupiter',
+                narration: "Further out lie the gas giants Jupiter and Saturn. Their colossal masses and extensive magnetic fields dominate the interplanetary environment."
+            },
+            {
+                title: "Ice Giants & Deep Space",
+                subtitle: "Uranus & Neptune",
+                target: { x: 62, y: 0, z: 0 },
+                cameraPos: { x: 55, y: 40, z: 90 },
+                highlight: 'neptune',
+                narration: "Finally, the ice giants Uranus and Neptune trace vast, slow orbits in the dark outer realms, completing our magnificent celestial clockwork."
+            }
+        ];
+
+        // --- 2. THREE.JS INITIALIZATION & SCENE SETUP ---
+        const container = document.getElementById('webgl-container');
+        const cssContainer = document.getElementById('css2d-container');
+
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x030712, 0.003);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 2000);
+        camera.position.set(0, 50, 110);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.2;
+        container.appendChild(renderer.domElement);
+
+        const labelRenderer = new THREE.CSS2DRenderer();
+        labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        labelRenderer.domElement.style.position = 'absolute';
+        labelRenderer.domElement.style.top = '0px';
+        labelRenderer.domElement.style.left = '0px';
+        labelRenderer.domElement.style.pointerEvents = 'none';
+        cssContainer.appendChild(labelRenderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxDistance = 300;
+        controls.minDistance = 5;
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.PointLight(0xfff5e6, 3.5, 500, 0.5);
+        sunLight.position.set(0, 0, 0);
+        scene.add(sunLight);
+
+        // --- 3. STARFIELD & CELESTIAL BACKGROUND ---
+        const starCount = 3000;
+        const starGeometry = new THREE.BufferGeometry();
+        const starPositions = new Float32Array(starCount * 3);
+        for(let i = 0; i < starCount * 3; i += 3) {
+            starPositions[i] = (Math.random() - 0.5) * 800;
+            starPositions[i+1] = (Math.random() - 0.5) * 800;
+            starPositions[i+2] = (Math.random() - 0.5) * 800;
+        }
+        starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        const starMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 1.2, transparent: true, opacity: 0.8 });
+        const starField = new THREE.Points(starGeometry, starMaterial);
+        scene.add(starField);
+
+        // --- 4. PLANET DATA & CREATION ---
+        const planetsData = [
+            { id: 'sun', name: 'Sun', radius: 4.5, distance: 0, speed: 0, color: 0xffaa00, emissive: 0xff6600, textured: true },
+            { id: 'mercury', name: 'Mercury', radius: 0.8, distance: 12, speed: 0.04, color: 0xa8a29e, orbitColor: 0x57534e },
+            { id: 'venus', name: 'Venus', radius: 1.2, distance: 18, speed: 0.03, color: 0xfde047, orbitColor: 0xca8a04 },
+            { id: 'earth', name: 'Earth', radius: 1.4, distance: 26, speed: 0.025, color: 0x38bdf8, orbitColor: 0x0284c7 },
+            { id: 'mars', name: 'Mars', radius: 1.0, distance: 34, speed: 0.02, color: 0xf97316, orbitColor: 0xc2410c },
+            { id: 'jupiter', name: 'Jupiter', radius: 2.8, distance: 46, speed: 0.012, color: 0xfde047, orbitColor: 0xa16207 },
+            { id: 'saturn', name: 'Saturn', radius: 2.3, distance: 58, speed: 0.009, color: 0xfef08a, orbitColor: 0x854d0e, hasRings: true },
+            { id: 'uranus', name: 'Uranus', radius: 1.7, distance: 70, speed: 0.006, color: 0x7dd3fc, orbitColor: 0x0369a1 },
+            { id: 'neptune', name: 'Neptune', radius: 1.6, distance: 82, speed: 0.004, color: 0x6366f1, orbitColor: 0x3730a3 }
+        ];
+
+        const planetMeshes = {};
+        const orbitLines = [];
+        const interactiveObjects = [];
+
+        const textureLoader = new THREE.TextureLoader();
+
+        planetsData.forEach(data => {
+            const pivot = new THREE.Group();
+            scene.add(pivot);
+
+            // Orbit line
+            if(data.distance > 0) {
+                const orbitGeo = new THREE.BufferGeometry();
+                const points = [];
+                const segments = 128;
+                for(let i = 0; i <= segments; i++) {
+                    const theta = (i / segments) * Math.PI * 2;
+                    points.push(new THREE.Vector3(Math.cos(theta) * data.distance, 0, Math.sin(theta) * data.distance));
+                }
+                orbitGeo.setFromPoints(points);
+                const orbitMat = new THREE.LineBasicMaterial({ color: data.orbitColor || 0x334155, transparent: true, opacity: 0.4 });
+                const orbitLine = new THREE.Line(orbitGeo, orbitMat);
+                scene.add(orbitLine);
+                orbitLines.push(orbitLine);
+            }
+
+            // Planet mesh
+            let mat;
+            if(data.id === 'sun') {
+                mat = new THREE.MeshBasicMaterial({ color: data.color });
+            } else {
+                mat = new THREE.MeshStandardMaterial({ 
+                    color: data.color, 
+                    roughness: 0.8,
+                    metalness: 0.1
+                });
+            }
+
+            const geo = new THREE.SphereGeometry(data.radius, 32, 32);
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.position.x = data.distance;
+            mesh.userData = { id: data.id, baseScale: 1 };
+            
+            if(data.id === 'sun') {
+                // Add glowing corona to sun
+                const glowGeo = new THREE.SphereGeometry(data.radius * 1.2, 32, 32);
+                const glowMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending });
+                const glowMesh = new THREE.Mesh(glowGeo, glowMat);
+                mesh.add(glowMesh);
+            }
+
+            // Saturn rings
+            if(data.hasRings) {
+                const ringGeo = new THREE.RingGeometry(data.radius * 1.4, data.radius * 2.3, 64);
+                // Rotate ring to lie flat on XZ plane relative to planet
+                ringGeo.rotateX(Math.PI / 2);
+                const ringMat = new THREE.MeshStandardMaterial({ color: 0xd97706, side: THREE.DoubleSide, transparent: true, opacity: 0.8, roughness: 0.5 });
+                const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+                mesh.add(ringMesh);
+            }
+
+            pivot.add(mesh);
+            planetMeshes[data.id] = { pivot, mesh, data, angle: Math.random() * Math.PI * 2 };
+            interactiveObjects.push(mesh);
+
+            // Create CSS2D Badge
+            const badgeDiv = document.createElement('div');
+            badgeDiv.className = 'planet-badge';
+            const comp = COMPONENTS[data.id];
+            badgeDiv.innerHTML = `<span>${comp.icon}</span> ${comp.title.split(' ')[0]}`;
+            badgeDiv.onclick = (e) => {
+                e.stopPropagation();
+                openInspectionModal(data.id);
+            };
+
+            const badgeLabel = new THREE.CSS2DObject(badgeDiv);
+            badgeLabel.position.set(0, data.radius + 1.2, 0);
+            mesh.add(badgeLabel);
+        });
+
+        // --- 5. INTERACTION & RAYCASTING ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let pointerDownTime = 0;
+        let pointerDownPos = { x: 0, y: 0 };
+
+        window.addEventListener('pointerdown', (e) => {
+            pointerDownTime = Date.now();
+            pointerDownPos = { x: e.clientX, y: e.clientY };
+        });
+
+        window.addEventListener('pointerup', (e) => {
+            const dt = Date.now() - pointerDownTime;
+            const dist = Math.hypot(e.clientX - pointerDownPos.x, e.clientY - pointerDownPos.y);
+            
+            if (dt < 250 && dist < 6) {
+                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects(interactiveObjects);
+                
+                if (intersects.length > 0) {
+                    const hitId = intersects[0].object.userData.id;
+                    if (hitId && COMPONENTS[hitId]) {
+                        openInspectionModal(hitId);
+                    }
+                }
+            }
+        });
+
+        // Hover Effect
+        window.addEventListener('pointermove', (e) => {
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(interactiveObjects);
+            
+            document.body.style.cursor = intersects.length > 0 ? 'pointer' : 'default';
+        });
+
+        // --- 6. MODAL & INSPECTION SYSTEM ---
+        let currentModalId = null;
+
+        function openInspectionModal(id) {
+            currentModalId = id;
+            const comp = COMPONENTS[id];
+            if (!comp) return;
+
+            document.getElementById('modal-icon').innerText = comp.icon;
+            document.getElementById('modal-title').innerText = comp.title;
+            document.getElementById('modal-subtitle').innerText = comp.subtitle;
+            document.getElementById('modal-desc').innerText = comp.description;
+
+            // Render KaTeX formula
+            try {
+                katex.render(comp.formula, document.getElementById('modal-formula'), { displayMode: true, throwOnError: false });
+            } catch(err) {
+                document.getElementById('modal-formula').innerText = comp.formula;
+            }
+
+            // Populate SI table
+            const tableEl = document.getElementById('modal-table');
+            tableEl.innerHTML = '';
+            comp.variables.forEach(v => {
+                const row = document.createElement('div');
+                row.className = 'px-4 py-2.5 flex justify-between items-center text-xs';
+                row.innerHTML = `<span class="text-slate-300 font-medium">${v.name}</span> <span class="text-sky-400 font-mono">${v.value}</span>`;
+                tableEl.appendChild(row);
+            });
+
+            // Show modal
+            const modal = document.getElementById('inspection-modal');
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.querySelector('div').classList.remove('scale-95');
+            modal.querySelector('div').classList.add('scale-100');
+        }
+
+        function closeInspectionModal() {
+            const modal = document.getElementById('inspection-modal');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+            modal.querySelector('div').classList.remove('scale-100');
+            modal.querySelector('div').classList.add('scale-95');
+            currentModalId = null;
+        }
+
+        document.getElementById('modal-close').onclick = closeInspectionModal;
+        document.getElementById('inspection-modal').onclick = (e) => {
+            if (e.target.id === 'inspection-modal') closeInspectionModal();
+        };
+
+        // --- 7. AUDIO / SPEECH SYNTHESIS ---
+        let audioEnabled = true;
+        let currentUtterance = null;
+
+        function speakText(text) {
+            if (!audioEnabled || !('speechSynthesis' in window)) return;
+            window.speechSynthesis.cancel();
+            
+            // Chunk long text to prevent Chrome 15s freeze
+            const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+            sentences.forEach(sentence => {
+                const utterance = new SpeechSynthesisUtterance(sentence.trim());
+                utterance.rate = 1.0;
+                utterance.pitch = 1.0;
+                window.speechSynthesis.speak(utterance);
+            });
+        }
+
+        document.getElementById('btn-audio').onclick = () => {
+            audioEnabled = !audioEnabled;
+            const btn = document.getElementById('btn-audio');
+            if (audioEnabled) {
+                btn.innerHTML = '🔊';
+                btn.classList.remove('text-slate-500', 'border-slate-800');
+                btn.classList.add('text-slate-300', 'border-slate-700');
+            } else {
+                btn.innerHTML = '🔇';
+                window.speechSynthesis.cancel();
+                btn.classList.add('text-slate-500', 'border-slate-800');
+                btn.classList.remove('text-slate-300', 'border-slate-700');
+            }
+        };
+
+        document.getElementById('modal-speak').onclick = () => {
+            if (currentModalId && COMPONENTS[currentModalId]) {
+                speakText(COMPONENTS[currentModalId].narration);
+            }
+        };
+
+        // --- 8. SIMULATION STATE & PARAMETERS ---
+        let speedMultiplier = 1.0;
+        let gravityConstant = 1.0;
+        let showTrails = true;
+
+        const sliderSpeed = document.getElementById('slider-speed');
+        const valSpeed = document.getElementById('val-speed');
+        sliderSpeed.oninput = (e) => {
+            speedMultiplier = parseFloat(e.target.value);
+            valSpeed.innerText = speedMultiplier.toFixed(1) + 'x';
+        };
+
+        const sliderGravity = document.getElementById('slider-gravity');
+        const valGravity = document.getElementById('val-gravity');
+        sliderGravity.oninput = (e) => {
+            gravityConstant = parseFloat(e.target.value);
+            valGravity.innerText = gravityConstant.toFixed(1);
+        };
+
+        const toggleTrails = document.getElementById('toggle-trails');
+        toggleTrails.onchange = (e) => {
+            showTrails = e.target.checked;
+            orbitLines.forEach(line => line.visible = showTrails);
+        };
+
+        document.getElementById('btn-reset-view').onclick = () => {
+            isJourneyActive = false;
+            stopJourney();
+            targetCameraPos.set(0, 50, 110);
+            targetLookAt.set(0, 0, 0);
+        };
+
+        // --- 9. GUIDED PLAY JOURNEY ---
+        let isJourneyActive = false;
+        let currentStageIndex = 0;
+        const targetCameraPos = new THREE.Vector3(0, 50, 110);
+        const targetLookAt = new THREE.Vector3(0, 0, 0);
+        let cameraLerpProgress = 1.0;
+
+        // Build journey dots
+        const stageDotsContainer = document.getElementById('stage-dots');
+        STAGES.forEach((_, idx) => {
+            const dot = document.createElement('div');
+            dot.className = `h-2 rounded-full transition-all duration-300 cursor-pointer ${idx === 0 ? 'w-8 bg-sky-500' : 'w-2 bg-slate-700'}`;
+            dot.onclick = () => goToStage(idx);
+            stageDotsContainer.appendChild(dot);
+        });
+
+        function goToStage(index) {
+            currentStageIndex = index;
+            const stage = STAGES[index];
+            
+            // Update dots
+            Array.from(stageDotsContainer.children).forEach((dot, idx) => {
+                dot.className = `h-2 rounded-full transition-all duration-300 cursor-pointer ${idx === index ? 'w-8 bg-sky-500' : 'w-2 bg-slate-700'}`;
+            });
+
+            document.getElementById('journey-stage-title').innerText = `Stage ${index + 1}: ${stage.title}`;
+            document.getElementById('journey-stage-counter').innerText = `${index + 1} / ${STAGES.length}`;
+
+            // Set camera targets
+            targetCameraPos.set(stage.cameraPos.x, stage.cameraPos.y, stage.cameraPos.z);
+            targetLookAt.set(stage.target.x, stage.target.y, stage.target.z);
+            cameraLerpProgress = 0.0;
+
+            speakText(stage.narration);
+        }
+
+        function startJourney() {
+            isJourneyActive = true;
+            currentStageIndex = 0;
+            document.getElementById('journey-icon').innerText = '⏹';
+            document.getElementById('journey-text').innerText = 'Exit Journey';
+            document.getElementById('journey-bar').classList.remove('hidden');
+            goToStage(0);
+        }
+
+        function stopJourney() {
+            isJourneyActive = false;
+            document.getElementById('journey-icon').innerText = '▶';
+            document.getElementById('journey-text').innerText = 'Start Play Journey';
+            document.getElementById('journey-bar').classList.add('hidden');
+            window.speechSynthesis.cancel();
+        }
+
+        document.getElementById('btn-journey').onclick = () => {
+            if (isJourneyActive) {
+                stopJourney();
+            } else {
+                startJourney();
+            }
+        };
+
+        document.getElementById('journey-next').onclick = () => {
+            if (currentStageIndex < STAGES.length - 1) {
+                goToStage(currentStageIndex + 1);
+            } else {
+                stopJourney();
+            }
+        };
+
+        // --- 10. ANIMATION LOOP ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const dt = Math.min(clock.getDelta(), 0.05);
+
+            // Update planet positions with gravitational scaling
+            planetsData.forEach(data => {
+                if (data.id === 'sun') return;
+                const p = planetMeshes[data.id];
+                // Keplerian velocity scales with sqrt(G / r^3) roughly
+                const effectiveSpeed = data.speed * speedMultiplier * Math.sqrt(gravityConstant);
+                p.angle += effectiveSpeed * dt;
+                p.pivot.rotation.y = p.angle;
+            });
+
+            // Camera smoothing during Journey
+            if (isJourneyActive && cameraLerpProgress < 1.0) {
+                cameraLerpProgress += dt * 1.5;
+                camera.position.lerp(targetCameraPos, dt * 2.5);
+                controls.target.lerp(targetLookAt, dt * 2.5);
+            }
+
+            controls.update();
+
+            // Render math readout dynamic update
+            const activeData = STAGES[currentStageIndex];
+            if (activeData) {
+                const mathText = `T^2 = \\frac{4\\pi^2}{G \\cdot M_\\odot} a^3 \\quad | \\quad G = ${gravityConstant.toFixed(1)}, \\text{speed} = ${speedMultiplier.toFixed(1)}x`;
+                // Keep KaTeX updated live if needed
+            }
+
+            renderer.render(scene, camera);
+            labelRenderer.render(scene, camera);
+        }
+
+        // Initialize KaTeX render for static elements
+        try {
+            katex.render("T^2 = \\frac{4\\pi^2}{G M} a^3", document.getElementById('math-readout'), { displayMode: false, throwOnError: false });
+        } catch(e) {}
+
+        // Window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start loop
+        animate();
+    </script>
+</body>
+</html>

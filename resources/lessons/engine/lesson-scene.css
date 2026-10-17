@@ -1,0 +1,21 @@
+/* lesson-scene.css — the 3D stage. Colours come from CSS variables so pages can theme it. */
+.ls-stage { position: relative; width: 100%; aspect-ratio: 16 / 10; min-height: 220px; max-height: 70vh; border-radius: 14px;
+  background: var(--ls-bg, radial-gradient(ellipse at 50% 35%, #ffffff 0%, #e8eef3 70%)); overflow: hidden; touch-action: pan-y; }
+@media (max-width: 600px) { .ls-stage { aspect-ratio: 4 / 3.4; } }
+.ls-canvas, .ls-canvas canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.ls-labels { position: absolute; inset: 0; pointer-events: none; }
+.ls-lines { position: absolute; inset: 0; overflow: visible; }
+.ls-lines line { stroke: var(--ls-line, #486581); stroke-width: 1.2; }
+.ls-lines circle { fill: var(--ls-line, #486581); }
+.ls-label { position: absolute; left: 0; top: 0; padding: 2px 7px; border-radius: 6px; font: 600 12px/1.3 system-ui, sans-serif;
+  color: var(--ls-label-fg, #102a43); background: var(--ls-label-bg, rgba(255,255,255,.92)); box-shadow: 0 1px 3px rgba(0,0,0,.18);
+  white-space: nowrap; will-change: transform; }
+.ls-cap { position: absolute; left: 10px; right: 10px; bottom: 10px; padding: 6px 10px; border-radius: 8px; font: 500 14px/1.35 system-ui, sans-serif;
+  color: #fff; background: rgba(16, 42, 67, .82); pointer-events: none; }
+.ls-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; }
+.ls-btn { font: 600 12px system-ui, sans-serif; border: 0; border-radius: 999px; padding: 6px 10px; background: rgba(255,255,255,.9);
+  color: #102a43; box-shadow: 0 1px 3px rgba(0,0,0,.2); cursor: pointer; }
+.ls-fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; text-align: center; font: 15px system-ui; color: #334e68; }
+@media (prefers-color-scheme: dark) {
+  .ls-stage { --ls-bg: radial-gradient(ellipse at 50% 35%, #2a3b4c 0%, #121d27 75%); --ls-label-bg: rgba(16, 30, 44, .92); --ls-label-fg: #e3edf5; --ls-line: #9fb3c8; }
+}

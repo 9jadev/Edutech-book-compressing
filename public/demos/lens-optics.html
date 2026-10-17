@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>3D Lens Optics — Audio-Synced Learning</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f7fa; color: #2a3a4a; }
+  #canvas-container { position: fixed; inset: 0; }
+  #hud {
+    position: fixed; top: 14px; left: 14px; z-index: 10;
+    background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+    border: 1px solid rgba(100,150,200,0.3); border-radius: 12px;
+    padding: 14px 18px; max-width: 380px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  }
+  #hud h1 { font-size: 16px; color: #2a6aa8; margin-bottom: 6px; letter-spacing: 0.5px; }
+  #hud p { font-size: 12px; line-height: 1.5; color: #5a6a7a; }
+  #hud .equation { font-family: 'Cambria Math', Georgia, serif; color: #d4880a; font-size: 15px; margin-top: 8px; padding: 6px; background: rgba(212,136,10,0.1); border-radius: 6px; }
+  #legend {
+    position: fixed; bottom: 14px; left: 14px; z-index: 10;
+    background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+    border: 1px solid rgba(100,150,200,0.3); border-radius: 12px;
+    padding: 10px 14px; font-size: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  }
+  .legend-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  #controls {
+    position: fixed; top: 14px; right: 14px; z-index: 10;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  #controls button, #controls select {
+    background: rgba(255,255,255,0.95); color: #2a3a4a;
+    border: 1px solid rgba(100,150,200,0.4); border-radius: 8px;
+    padding: 8px 12px; font-size: 12px; cursor: pointer;
+    backdrop-filter: blur(10px); transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  #controls button:hover, #controls select:hover { background: rgba(220,235,255,0.95); border-color: #2a6aa8; }
+  #controls button.active { background: rgba(180,210,240,0.95); border-color: #2a6aa8; }
+  #controls button.playing { background: rgba(255,220,180,0.95); border-color: #d4880a; }
+  #controls select { cursor: pointer; }
+
+  .label3d {
+    background: rgba(255,255,255,0.95); color: #2a3a4a;
+    border: 2px solid rgba(100,150,200,0.6); border-radius: 6px;
+    padding: 5px 11px; font-size: 12px; font-weight: 600;
+    cursor: pointer; user-select: none; white-space: nowrap;
+    transition: all 0.2s; pointer-events: auto;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+  }
+  .label3d:hover { background: rgba(220,235,255,0.98); border-color: #d4880a; transform: scale(1.08); }
+  .label3d.lens { border-color: #8a6ad4; color: #6a4ab4; }
+  .label3d.ray { border-color: #d46a8a; color: #b44a6a; }
+  .label3d.point { border-color: #4ab46a; color: #2a8a4a; }
+  .label3d.image { border-color: #d4880a; color: #b4680a; }
+
+  #modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(6px); z-index: 100;
+    display: none; align-items: center; justify-content: center;
+    animation: fadeIn 0.25s ease-out;
+  }
+  #modal-overlay.show { display: flex; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  #modal {
+    background: linear-gradient(145deg, #ffffff, #f0f4f8);
+    border: 2px solid rgba(100,150,200,0.5); border-radius: 16px;
+    padding: 28px 32px; max-width: 600px; width: 90%;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    animation: slideUp 0.3s ease-out; position: relative;
+  }
+  @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  #modal h2 { color: #2a6aa8; font-size: 22px; margin-bottom: 4px; }
+  #modal .formula { font-family: 'Cambria Math', Georgia, serif; color: #d4880a; font-size: 16px; margin-bottom: 14px; padding: 8px; background: rgba(212,136,10,0.1); border-radius: 6px; }
+  #modal .section { margin: 12px 0; }
+  #modal .section h3 { color: #2a8a4a; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  #modal .section p { color: #3a4a5a; font-size: 14px; line-height: 1.6; }
+  #modal .btn-row { display: flex; gap: 10px; margin-top: 18px; }
+  #modal button {
+    flex: 1; padding: 10px 14px; border-radius: 8px; border: 1px solid rgba(100,150,200,0.4);
+    background: rgba(220,235,255,0.8); color: #2a3a4a; cursor: pointer; font-size: 13px;
+    transition: all 0.2s;
+  }
+  #modal button:hover { background: rgba(180,210,240,0.9); border-color: #2a6aa8; }
+  #modal button.speak { background: rgba(200,240,200,0.8); border-color: #4ab46a; }
+  #modal button.speak:hover { background: rgba(160,220,160,0.9); }
+  #modal button.speak.playing { background: rgba(255,200,180,0.9); border-color: #d4880a; }
+  #modal .close { position: absolute; top: 10px; right: 14px; background: transparent; border: none; color: #2a6aa8; font-size: 24px; cursor: pointer; }
+
+  #equation-display {
+    position: fixed; bottom: 14px; right: 14px; z-index: 10;
+    background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+    border: 1px solid rgba(100,150,200,0.3); border-radius: 12px;
+    padding: 14px 18px; font-size: 13px; width: 320px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  }
+  #equation-display h3 { color: #2a6aa8; font-size: 14px; margin-bottom: 8px; }
+  .eq-row { display: flex; justify-content: space-between; margin: 4px 0; color: #5a6a7a; }
+  .eq-row .val { color: #d4880a; font-family: 'Consolas', monospace; font-weight: 600; }
+
+  .slider-container { margin: 8px 0; }
+  .slider-container label { display: block; font-size: 11px; color: #5a6a7a; margin-bottom: 4px; }
+  .slider-container input[type="range"] { width: 100%; cursor: pointer; }
+
+  #stage-nav {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    z-index: 10; display: flex; gap: 10px; align-items: center;
+    background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+    border: 1px solid rgba(100,150,200,0.3); border-radius: 12px;
+    padding: 10px 16px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  }
+  #stage-nav button {
+    background: rgba(220,235,255,0.8); color: #2a3a4a;
+    border: 1px solid rgba(100,150,200,0.4); border-radius: 6px;
+    padding: 6px 14px; font-size: 12px; cursor: pointer;
+    transition: all 0.2s;
+  }
+  #stage-nav button:hover { background: rgba(180,210,240,0.9); border-color: #2a6aa8; }
+  #stage-nav button:disabled { opacity: 0.4; cursor: not-allowed; }
+  #stage-nav button.journey-btn { background: rgba(200,240,200,0.9); border-color: #4ab46a; font-weight: 600; }
+  #stage-nav button.journey-btn:hover { background: rgba(160,220,160,1); }
+  #stage-nav button.journey-btn.playing { background: rgba(255,220,180,0.95); border-color: #d4880a; }
+  #stage-info { font-size: 13px; color: #2a6aa8; font-weight: 600; min-width: 200px; text-align: center; }
+
+  /* Subtle audio indicator - just a small speaker icon */
+  #audio-indicator {
+    position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 10;
+    background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+    border: 1px solid rgba(100,150,200,0.3); border-radius: 20px;
+    padding: 6px 14px; font-size: 12px; color: #2a6aa8;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    opacity: 0; transition: opacity 0.4s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  #audio-indicator.show { opacity: 1; }
+  #audio-indicator .pulse {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #4ab46a; animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.3); }
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<div id="hud">
+  <h1>🔬 Lens Optics — Audio-Synced Learning</h1>
+  <p>Click "Play Journey" to hear the narration while the animation advances automatically through each stage.</p>
+  <div class="equation" id="main-equation">1/f = 1/dₒ + 1/dᵢ</div>
+  <p style="margin-top:8px; font-size:11px; color:#7a8a9a;">Click any label to learn more. Use Prev/Next for manual control.</p>
+</div>
+
+<div id="legend">
+  <div class="legend-row"><span class="dot" style="background:#8a6ad4;"></span> Lens (Convex/Concave)</div>
+  <div class="legend-row"><span class="dot" style="background:#d46a8a;"></span> Light rays</div>
+  <div class="legend-row"><span class="dot" style="background:#4ab46a;"></span> Focal points</div>
+  <div class="legend-row"><span class="dot" style="background:#d4880a;"></span> Object & Image</div>
+</div>
+
+<div id="controls">
+  <select id="lens-type">
+    <option value="convex">Convex (Converging) Lens</option>
+    <option value="concave">Concave (Diverging) Lens</option>
+  </select>
+  <div class="slider-container">
+    <label>Object Distance (dₒ): <span id="do-val">8.0</span> units</label>
+    <input type="range" id="obj-dist" min="2" max="20" step="0.1" value="8">
+  </div>
+  <div class="slider-container">
+    <label>Focal Length (f): <span id="f-val">4.0</span> units</label>
+    <input type="range" id="focal-len" min="1" max="10" step="0.1" value="4">
+  </div>
+  <button id="btn-reset">↻ Reset</button>
+</div>
+
+<div id="equation-display">
+  <h3>📐 Dynamic Calculations</h3>
+  <div class="eq-row"><span>Focal length (f):</span><span class="val" id="calc-f">4.00</span></div>
+  <div class="eq-row"><span>Object distance (dₒ):</span><span class="val" id="calc-do">8.00</span></div>
+  <div class="eq-row"><span>Image distance (dᵢ):</span><span class="val" id="calc-di">8.00</span></div>
+  <div class="eq-row"><span>Magnification (M):</span><span class="val" id="calc-m">-1.00</span></div>
+  <div class="eq-row"><span>Image type:</span><span class="val" id="calc-type">Real, Inverted</span></div>
+</div>
+
+<div id="audio-indicator">
+  <div class="pulse"></div>
+  <span id="audio-status">Narrating...</span>
+</div>
+
+<div id="stage-nav">
+  <button id="btn-prev" disabled>◀ Previous</button>
+  <button id="btn-journey" class="journey-btn">▶ Play Journey</button>
+  <div id="stage-info">Stage 1: Introduction</div>
+  <button id="btn-next">Next ▶</button>
+</div>
+
+<div id="modal-overlay">
+  <div id="modal">
+    <button class="close" onclick="closeModal()">×</button>
+    <h2 id="m-title">Component</h2>
+    <div class="formula" id="m-formula"></div>
+    <div class="section"><h3>What it is</h3><p id="m-what"></p></div>
+    <div class="section"><h3>What it does</h3><p id="m-does"></p></div>
+    <div class="section"><h3>Role in optics</h3><p id="m-role"></p></div>
+    <div class="btn-row">
+      <button class="speak" id="btn-speak">🔊 Read Aloud</button>
+      <button onclick="closeModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf5f7fa);
+scene.fog = new THREE.Fog(0xf5f7fa, 30, 80);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0, 8, 20);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.style.position = 'absolute';
+labelRenderer.domElement.style.top = '0';
+labelRenderer.domElement.style.pointerEvents = 'none';
+document.getElementById('canvas-container').appendChild(labelRenderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 0, 0);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+keyLight.position.set(5, 10, 7);
+scene.add(keyLight);
+const rimLight = new THREE.DirectionalLight(0x8fd3ff, 0.4);
+rimLight.position.set(-5, 3, -5);
+scene.add(rimLight);
+
+// Materials
+const matConvexLens = new THREE.MeshPhysicalMaterial({
+  color: 0x8a6ad4, metalness: 0.1, roughness: 0.1,
+  transmission: 0.85, thickness: 0.5, transparent: true,
+  opacity: 0.7, ior: 1.5, clearcoat: 1.0
+});
+const matConcaveLens = new THREE.MeshPhysicalMaterial({
+  color: 0x6a8ad4, metalness: 0.1, roughness: 0.1,
+  transmission: 0.85, thickness: 0.5, transparent: true,
+  opacity: 0.7, ior: 1.5, clearcoat: 1.0
+});
+const matRay = new THREE.LineBasicMaterial({ color: 0xd46a8a, linewidth: 2 });
+const matPrincipalRay = new THREE.LineBasicMaterial({ color: 0xd4880a, linewidth: 2 });
+const matFocalRay = new THREE.LineBasicMaterial({ color: 0x4ab46a, linewidth: 2 });
+const matObject = new THREE.MeshPhysicalMaterial({
+  color: 0xd44a4a, metalness: 0.2, roughness: 0.4,
+  emissive: 0xb42a2a, emissiveIntensity: 0.3
+});
+const matImage = new THREE.MeshPhysicalMaterial({
+  color: 0x4ad44a, metalness: 0.2, roughness: 0.4,
+  emissive: 0x2ab42a, emissiveIntensity: 0.3, transparent: true, opacity: 0.8
+});
+const matFocalPoint = new THREE.MeshPhysicalMaterial({
+  color: 0x4ab46a, metalness: 0.3, roughness: 0.3,
+  emissive: 0x2a8a4a, emissiveIntensity: 0.5
+});
+const matAxis = new THREE.LineBasicMaterial({ color: 0x8a9aaa, linewidth: 1 });
+
+// Optical axis
+const axisGeo = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(-25, 0, 0),
+  new THREE.Vector3(25, 0, 0)
+]);
+const axis = new THREE.Line(axisGeo, matAxis);
+scene.add(axis);
+
+// Lens
+let currentLensType = 'convex';
+let lensMesh;
+
+function createConvexLens() {
+  const radius = 3;
+  const thickness = 0.8;
+  const shape = new THREE.Shape();
+  shape.absarc(0, 0, radius, Math.PI/2, -Math.PI/2, false);
+  shape.absarc(thickness, 0, radius, -Math.PI/2, Math.PI/2, false);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.3, bevelEnabled: false });
+  geo.center();
+  return new THREE.Mesh(geo, matConvexLens);
+}
+
+function createConcaveLens() {
+  const outerRadius = 3;
+  const innerRadius = 2.5;
+  const thickness = 0.4;
+  const shape = new THREE.Shape();
+  shape.absarc(0, 0, outerRadius, 0, Math.PI * 2, false);
+  const hole1 = new THREE.Path();
+  hole1.absarc(-thickness/2, 0, innerRadius, 0, Math.PI * 2, true);
+  shape.holes.push(hole1);
+  const hole2 = new THREE.Path();
+  hole2.absarc(thickness/2, 0, innerRadius, 0, Math.PI * 2, true);
+  shape.holes.push(hole2);
+  const geo = new THREE.ExtrudeGeometry(shape, { depth: 0.3, bevelEnabled: false });
+  geo.center();
+  return new THREE.Mesh(geo, matConcaveLens);
+}
+
+function updateLens() {
+  if (lensMesh) scene.remove(lensMesh);
+  lensMesh = currentLensType === 'convex' ? createConvexLens() : createConcaveLens();
+  lensMesh.rotation.y = Math.PI / 2;
+  scene.add(lensMesh);
+}
+updateLens();
+
+// Focal points
+const focalLeft = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), matFocalPoint);
+scene.add(focalLeft);
+const focalRight = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), matFocalPoint);
+scene.add(focalRight);
+
+// Object
+const objectArrow = new THREE.Group();
+const objShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2, 8), matObject);
+objShaft.position.y = 1;
+objectArrow.add(objShaft);
+const objHead = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.4, 8), matObject);
+objHead.position.y = 2.2;
+objectArrow.add(objHead);
+objectArrow.visible = false;
+scene.add(objectArrow);
+
+// Image
+const imageArrow = new THREE.Group();
+const imgShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2, 8), matImage);
+imgShaft.position.y = 1;
+imageArrow.add(imgShaft);
+const imgHead = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.4, 8), matImage);
+imgHead.position.y = 2.2;
+imageArrow.add(imgHead);
+imageArrow.visible = false;
+scene.add(imageArrow);
+
+// Rays
+let rays = [];
+function clearRays() {
+  rays.forEach(r => scene.remove(r));
+  rays = [];
+}
+function createRay(points, material) {
+  const geo = new THREE.BufferGeometry().setFromPoints(points);
+  const line = new THREE.Line(geo, material);
+  scene.add(line);
+  rays.push(line);
+  return line;
+}
+
+// Parameters
+let objectDistance = 8.0;
+let focalLength = 4.0;
+
+function calculateImage() {
+  const f = focalLength * (currentLensType === 'concave' ? -1 : 1);
+  const dobj = objectDistance;
+  const di = 1 / (1/f - 1/dobj);
+  const M = -di / dobj;
+  return { f, do: dobj, di, M };
+}
+
+function updateScene() {
+  const calc = calculateImage();
+  focalLeft.position.set(-Math.abs(calc.f), 0, 0);
+  focalRight.position.set(Math.abs(calc.f), 0, 0);
+  objectArrow.position.set(-calc.do, 0, 0);
+  imageArrow.position.set(calc.di, 0, 0);
+  imageArrow.scale.y = calc.M < 0 ? -Math.abs(calc.M) : Math.abs(calc.M);
+  imageArrow.visible = calc.di !== Infinity && Math.abs(calc.di) < 30 && currentStage >= 4;
+
+  document.getElementById('calc-f').textContent = calc.f.toFixed(2);
+  document.getElementById('calc-do').textContent = calc.do.toFixed(2);
+  document.getElementById('calc-di').textContent = isFinite(calc.di) ? calc.di.toFixed(2) : '∞';
+  document.getElementById('calc-m').textContent = calc.M.toFixed(2);
+
+  let imgType = '';
+  if (!isFinite(calc.di)) imgType = 'At infinity';
+  else if (calc.di > 0) imgType = calc.M < 0 ? 'Real, Inverted' : 'Real, Upright';
+  else imgType = 'Virtual, Upright';
+  document.getElementById('calc-type').textContent = imgType;
+
+  drawRaysForStage();
+}
+
+function drawRaysForStage() {
+  clearRays();
+  const calc = calculateImage();
+  if (!imageArrow.visible && currentStage < 4) {
+    // Draw partial rays even if image not visible yet
+  }
+
+  const objTop = new THREE.Vector3(-calc.do, 2, 0);
+  const lensCenter = new THREE.Vector3(0, 0, 0);
+  const imgTop = new THREE.Vector3(calc.di, 2 * calc.M, 0);
+
+  if (currentStage >= 2) {
+    createRay([objTop, new THREE.Vector3(0, 2, 0)], matPrincipalRay);
+    if (currentLensType === 'convex' && imageArrow.visible) {
+      createRay([new THREE.Vector3(0, 2, 0), imgTop], matPrincipalRay);
+    } else if (currentLensType === 'convex') {
+      const focal = new THREE.Vector3(Math.abs(calc.f), 0, 0);
+      const dir = new THREE.Vector3(0, 2, 0).clone().sub(focal).normalize();
+      createRay([new THREE.Vector3(0, 2, 0), new THREE.Vector3(0, 2, 0).clone().add(dir.multiplyScalar(15))], matPrincipalRay);
+    } else {
+      const divergePoint = new THREE.Vector3(0, 2, 0);
+      const virtualFocal = new THREE.Vector3(-Math.abs(calc.f), 0, 0);
+      const direction = divergePoint.clone().sub(virtualFocal).normalize();
+      const endPoint = divergePoint.clone().add(direction.multiplyScalar(15));
+      createRay([divergePoint, endPoint], matPrincipalRay);
+      if (imageArrow.visible) {
+        createRay([divergePoint, imgTop], new THREE.LineBasicMaterial({ color: 0xd46a8a, linewidth: 1, transparent: true, opacity: 0.4 }));
+      }
+    }
+  }
+
+  if (currentStage >= 3) {
+    createRay([objTop, lensCenter], matRay);
+    if (imageArrow.visible) {
+      createRay([lensCenter, imgTop], matRay);
+    } else {
+      const dir = lensCenter.clone().sub(objTop).normalize();
+      createRay([lensCenter, lensCenter.clone().add(dir.multiplyScalar(15))], matRay);
+    }
+  }
+
+  if (currentStage >= 4) {
+    if (currentLensType === 'convex') {
+      const focalPoint = new THREE.Vector3(-Math.abs(calc.f), 0, 0);
+      const direction = objTop.clone().sub(focalPoint).normalize();
+      const lensPoint = focalPoint.clone().add(direction.multiplyScalar(calc.do + Math.abs(calc.f)));
+      createRay([objTop, new THREE.Vector3(0, lensPoint.y, 0)], matFocalRay);
+      if (imageArrow.visible) {
+        createRay([new THREE.Vector3(0, lensPoint.y, 0), imgTop], matFocalRay);
+      } else {
+        createRay([new THREE.Vector3(0, lensPoint.y, 0), new THREE.Vector3(15, lensPoint.y, 0)], matFocalRay);
+      }
+    } else {
+      const virtualFocal = new THREE.Vector3(Math.abs(calc.f), 0, 0);
+      const direction = virtualFocal.clone().sub(objTop).normalize();
+      const lensPoint = objTop.clone().add(direction.multiplyScalar(calc.do));
+      createRay([objTop, new THREE.Vector3(0, lensPoint.y, 0)], matFocalRay);
+      if (imageArrow.visible) {
+        createRay([new THREE.Vector3(0, lensPoint.y, 0), imgTop], matFocalRay);
+      } else {
+        const dir = new THREE.Vector3(0, lensPoint.y, 0).clone().sub(objTop).normalize();
+        createRay([new THREE.Vector3(0, lensPoint.y, 0), new THREE.Vector3(0, lensPoint.y, 0).clone().add(dir.multiplyScalar(15))], matFocalRay);
+      }
+    }
+  }
+}
+
+// Labels
+function makeLabel(text, cssClass, position, infoKey) {
+  const div = document.createElement('div');
+  div.className = 'label3d ' + cssClass;
+  div.textContent = text;
+  div.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openModal(infoKey);
+  });
+  const label = new CSS2DObject(div);
+  label.position.copy(position);
+  scene.add(label);
+  return label;
+}
+
+const labels = {
+  lens: makeLabel('🔍 Lens', 'lens', new THREE.Vector3(0, 3.5, 0), 'lens'),
+  focalL: makeLabel('F (left)', 'point', new THREE.Vector3(-4, 0.5, 0), 'focalPoint'),
+  focalR: makeLabel("F' (right)", 'point', new THREE.Vector3(4, 0.5, 0), 'focalPoint'),
+  object: makeLabel('Object', 'image', new THREE.Vector3(-8, 2.8, 0), 'object'),
+  image: makeLabel('Image', 'image', new THREE.Vector3(8, 2.8, 0), 'image'),
+  axis: makeLabel('Optical Axis', 'point', new THREE.Vector3(0, -0.5, 0), 'opticalAxis'),
+  principalRay: makeLabel('Principal Ray', 'ray', new THREE.Vector3(0, 2.5, 0), 'principalRay'),
+  centralRay: makeLabel('Central Ray', 'ray', new THREE.Vector3(-4, 1, 0), 'centralRay'),
+  focalRay: makeLabel('Focal Ray', 'ray', new THREE.Vector3(-6, 1.5, 0), 'focalRay')
+};
+
+// Info database
+const info = {
+  lens: {
+    title: 'Lens',
+    formula: 'A transparent optical device that refracts light',
+    what: 'A lens is a piece of transparent material (usually glass or plastic) with curved surfaces that refract light rays. Convex lenses are thicker in the middle and converge light; concave lenses are thinner in the middle and diverge light. The shape and refractive index determine the focal length.',
+    does: 'Bends incoming light rays according to Snell\'s law of refraction. Convex lenses bring parallel rays to a focus at the focal point; concave lenses cause parallel rays to spread apart as if coming from a virtual focal point.',
+    role: 'The core component of optical systems. Lenses form images by redirecting light from objects. They are used in cameras, microscopes, telescopes, eyeglasses, and the human eye.'
+  },
+  focalPoint: {
+    title: 'Focal Point (F)',
+    formula: 'The point where parallel rays converge (or appear to diverge from)',
+    what: 'The focal point is located at distance f (focal length) from the lens center along the optical axis. For a convex lens, it\'s real — light actually converges there. For a concave lens, it\'s virtual — light appears to diverge from it.',
+    does: 'Serves as a reference point for ray tracing and image formation. Rays parallel to the optical axis pass through (or appear to come from) the focal point after refraction.',
+    role: 'Essential for determining image characteristics. The position of the object relative to the focal point determines whether the image is real or virtual, magnified or reduced, upright or inverted.'
+  },
+  object: {
+    title: 'Object',
+    formula: 'The source of light rays being imaged',
+    what: 'The object is the physical item being observed or photographed. Each point on the object emits or reflects light rays in all directions. For ray tracing, we track rays from the top of the object.',
+    does: 'Emits light rays that travel toward the lens. The distance from the object to the lens (object distance, dₒ) is measured along the optical axis from the lens center.',
+    role: 'The starting point of the optical journey. The object\'s position relative to the focal point determines the characteristics of the resulting image.'
+  },
+  image: {
+    title: 'Image',
+    formula: 'The optical reproduction of the object formed by the lens',
+    what: 'The image is where light rays converge (real image) or appear to diverge from (virtual image) after passing through the lens. Real images can be projected onto a screen; virtual images can only be seen by looking through the lens.',
+    does: 'Forms at the image distance calculated by 1/f = 1/dₒ + 1/dᵢ. The magnification M = -dᵢ/dₒ determines the image size and orientation.',
+    role: 'The end result of the optical process. Real images form on the opposite side of the lens from the object; virtual images form on the same side.'
+  },
+  opticalAxis: {
+    title: 'Optical Axis',
+    formula: 'The horizontal line passing through the lens center',
+    what: 'The optical axis is an imaginary line that passes through the center of curvature of both lens surfaces and the center of the lens. It\'s the line of symmetry for the optical system.',
+    does: 'Serves as the reference line for measuring distances and angles. Rays parallel to the optical axis are focused at the focal point.',
+    role: 'The backbone of geometric optics. All distances are measured along the optical axis from the lens center.'
+  },
+  principalRay: {
+    title: 'Principal Ray (Parallel Ray)',
+    formula: 'Ray parallel to axis → passes through focal point after lens',
+    what: 'A ray that starts from the top of the object parallel to the optical axis. After passing through a convex lens, it refracts and passes through the focal point on the opposite side.',
+    does: 'Demonstrates the lens\'s ability to focus parallel light. This ray is easy to trace because its path before and after the lens is completely determined by the focal point location.',
+    role: 'Essential for graphical ray tracing. Combined with the central ray and focal ray, it intersects at the image point, confirming the image location.'
+  },
+  centralRay: {
+    title: 'Central Ray',
+    formula: 'Ray through lens center → continues straight (undeviated)',
+    what: 'A ray that passes through the exact center of the lens. At the center, the lens surfaces are essentially parallel, so the ray passes through without deviation.',
+    does: 'Travels in a straight line from the object point to the image point through the lens center. The ray is undeviated because it enters and exits at the same angle.',
+    role: 'The simplest ray in ray diagrams. It directly connects the object point to the image point, providing a straightforward verification of image location.'
+  },
+  focalRay: {
+    title: 'Focal Ray',
+    formula: 'Ray through focal point → emerges parallel to axis',
+    what: 'A ray that passes through (or toward) the focal point before hitting the lens. After refraction, it emerges parallel to the optical axis. This is the reverse of the principal ray.',
+    does: 'Shows that light paths are reversible. If a ray can go from parallel to focal, then a ray from focal must go to parallel.',
+    role: 'The third standard ray in ray diagrams. Together with the principal and central rays, it provides triple confirmation of the image position.'
+  }
+};
+
+// Modal
+const modalOverlay = document.getElementById('modal-overlay');
+
+window.openModal = function(key) {
+  const data = info[key];
+  if (!data) return;
+  document.getElementById('m-title').textContent = data.title;
+  document.getElementById('m-formula').textContent = data.formula;
+  document.getElementById('m-what').textContent = data.what;
+  document.getElementById('m-does').textContent = data.does;
+  document.getElementById('m-role').textContent = data.role;
+  modalOverlay.classList.add('show');
+  modalOverlay.dataset.text = `${data.title}. ${data.formula}. ${data.what} ${data.does} ${data.role}`;
+  const btn = document.getElementById('btn-speak');
+  btn.classList.remove('playing');
+  btn.textContent = '🔊 Read Aloud';
+};
+
+window.closeModal = function() {
+  modalOverlay.classList.remove('show');
+  if (speechSynthesis.speaking) speechSynthesis.cancel();
+  const btn = document.getElementById('btn-speak');
+  btn.classList.remove('playing');
+  btn.textContent = '🔊 Read Aloud';
+};
+
+modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(); });
+
+document.getElementById('btn-speak').addEventListener('click', () => {
+  const btn = document.getElementById('btn-speak');
+  if (speechSynthesis.speaking) {
+    speechSynthesis.cancel();
+    btn.classList.remove('playing');
+    btn.textContent = '🔊 Read Aloud';
+    return;
+  }
+  const utter = new SpeechSynthesisUtterance(modalOverlay.dataset.text);
+  utter.rate = 0.95;
+  utter.pitch = 1;
+  utter.onend = utter.onerror = () => { btn.classList.remove('playing'); btn.textContent = '🔊 Read Aloud'; };
+  speechSynthesis.speak(utter);
+  btn.classList.add('playing');
+  btn.textContent = '⏸ Stop Reading';
+});
+
+// Stage system with audio-synced progression
+const stages = [
+  {
+    name: 'Stage 1: Introduction',
+    narration: "Welcome to lens optics. Here you see a convex lens positioned on the optical axis — the horizontal reference line. This lens is thicker in the middle, which makes it a converging lens. The green dots mark the focal points, located at distance f from the lens center on each side. Take a moment to observe the setup before we begin tracing light rays."
+  },
+  {
+    name: 'Stage 2: Principal Ray',
+    narration: "Now the object appears — the red arrow on the left side. From the top of the object, we draw the principal ray in orange, traveling parallel to the optical axis toward the lens. When this ray hits the lens, it refracts and passes through the focal point on the far side. This demonstrates the fundamental property of convex lenses: they converge parallel light to a focus."
+  },
+  {
+    name: 'Stage 3: Central Ray',
+    narration: "Next, we add the central ray in pink. This ray passes straight through the exact center of the lens without bending. At the lens center, the two surfaces are essentially parallel, so the ray continues in a straight line. This is the simplest ray to trace and serves as a direct link between the object and the image."
+  },
+  {
+    name: 'Stage 4: Focal Ray',
+    narration: "Finally, the focal ray in green passes through the near focal point before hitting the lens. After refraction, it emerges parallel to the optical axis. This is the reverse of the principal ray and beautifully demonstrates the reversibility of light paths. Notice how all three rays now converge at a single point on the other side of the lens."
+  },
+  {
+    name: 'Stage 5: Image Formation',
+    narration: "Where all three rays intersect, the image forms — the green arrow on the right. Notice it is inverted and real, meaning it could be projected onto a screen. The image distance and magnification are calculated by the thin lens equation: one over f equals one over d-o plus one over d-i. Try adjusting the sliders to see how changing object distance or focal length affects the image!"
+  }
+];
+
+let currentStage = 0;
+let journeyPlaying = false;
+
+function setStage(n, skipNarration = false) {
+  currentStage = Math.max(0, Math.min(stages.length - 1, n));
+  document.getElementById('stage-info').textContent = stages[currentStage].name;
+  document.getElementById('btn-prev').disabled = (currentStage === 0);
+  document.getElementById('btn-next').disabled = (currentStage === stages.length - 1);
+
+  // Show/hide elements based on stage
+  objectArrow.visible = (currentStage >= 1);
+  labels.object.visible = (currentStage >= 1);
+  labels.principalRay.visible = (currentStage >= 2);
+  labels.centralRay.visible = (currentStage >= 3);
+  labels.focalRay.visible = (currentStage >= 4);
+  imageArrow.visible = (currentStage >= 4);
+  labels.image.visible = (currentStage >= 4);
+
+  updateScene();
+
+  if (!skipNarration && journeyPlaying) {
+    narrateCurrentStage();
+  }
+}
+
+// Audio indicator
+const audioIndicator = document.getElementById('audio-indicator');
+const audioStatus = document.getElementById('audio-status');
+
+function showAudioIndicator(text) {
+  audioStatus.textContent = text;
+  audioIndicator.classList.add('show');
+}
+function hideAudioIndicator() {
+  audioIndicator.classList.remove('show');
+}
+
+function narrateCurrentStage() {
+  if (speechSynthesis.speaking) speechSynthesis.cancel();
+
+  const text = stages[currentStage].narration;
+  showAudioIndicator(`Stage ${currentStage + 1}: Narrating...`);
+
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.rate = 0.95;
+  utter.pitch = 1.0;
+
+  utter.onend = () => {
+    hideAudioIndicator();
+    // Auto-advance to next stage if journey is playing
+    if (journeyPlaying && currentStage < stages.length - 1) {
+      setTimeout(() => {
+        if (journeyPlaying) {
+          setStage(currentStage + 1);
+        }
+      }, 800); // Small pause between stages
+    } else if (currentStage === stages.length - 1) {
+      // Journey complete
+      journeyPlaying = false;
+      const btn = document.getElementById('btn-journey');
+      btn.classList.remove('playing');
+      btn.textContent = '▶ Play Journey';
+    }
+  };
+
+  utter.onerror = () => {
+    hideAudioIndicator();
+  };
+
+  speechSynthesis.speak(utter);
+}
+
+// Journey button - plays all stages in sync with narration
+document.getElementById('btn-journey').addEventListener('click', () => {
+  const btn = document.getElementById('btn-journey');
+  if (journeyPlaying) {
+    // Stop journey
+    journeyPlaying = false;
+    if (speechSynthesis.speaking) speechSynthesis.cancel();
+    hideAudioIndicator();
+    btn.classList.remove('playing');
+    btn.textContent = '▶ Play Journey';
+  } else {
+    // Start journey from current stage (or beginning if at end)
+    journeyPlaying = true;
+    btn.classList.add('playing');
+    btn.textContent = '⏸ Stop Journey';
+    if (currentStage === stages.length - 1) {
+      setStage(0);
+    } else {
+      narrateCurrentStage();
+    }
+  }
+});
+
+document.getElementById('btn-prev').addEventListener('click', () => {
+  if (journeyPlaying) {
+    journeyPlaying = false;
+    if (speechSynthesis.speaking) speechSynthesis.cancel();
+    hideAudioIndicator();
+    const btn = document.getElementById('btn-journey');
+    btn.classList.remove('playing');
+    btn.textContent = '▶ Play Journey';
+  }
+  setStage(currentStage - 1, true);
+});
+
+document.getElementById('btn-next').addEventListener('click', () => {
+  if (journeyPlaying) {
+    journeyPlaying = false;
+    if (speechSynthesis.speaking) speechSynthesis.cancel();
+    hideAudioIndicator();
+    const btn = document.getElementById('btn-journey');
+    btn.classList.remove('playing');
+    btn.textContent = '▶ Play Journey';
+  }
+  setStage(currentStage + 1, true);
+});
+
+// Controls
+document.getElementById('lens-type').addEventListener('change', (e) => {
+  currentLensType = e.target.value;
+  updateLens();
+  updateScene();
+});
+
+document.getElementById('obj-dist').addEventListener('input', (e) => {
+  objectDistance = parseFloat(e.target.value);
+  document.getElementById('do-val').textContent = objectDistance.toFixed(1);
+  updateScene();
+});
+
+document.getElementById('focal-len').addEventListener('input', (e) => {
+  focalLength = parseFloat(e.target.value);
+  document.getElementById('f-val').textContent = focalLength.toFixed(1);
+  updateScene();
+});
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  if (journeyPlaying) {
+    journeyPlaying = false;
+    if (speechSynthesis.speaking) speechSynthesis.cancel();
+    hideAudioIndicator();
+    const btn = document.getElementById('btn-journey');
+    btn.classList.remove('playing');
+    btn.textContent = '▶ Play Journey';
+  }
+  objectDistance = 8.0;
+  focalLength = 4.0;
+  document.getElementById('obj-dist').value = 8;
+  document.getElementById('focal-len').value = 4;
+  document.getElementById('do-val').textContent = '8.0';
+  document.getElementById('f-val').textContent = '4.0';
+  setStage(0, true);
+  updateScene();
+});
+
+// Animation
+let time = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  time += 0.016;
+
+  const pulse = 0.5 + Math.sin(time * 3) * 0.2;
+  matFocalPoint.emissiveIntensity = pulse;
+
+  controls.update();
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+
+setStage(0, true);
+updateScene();
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  labelRenderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

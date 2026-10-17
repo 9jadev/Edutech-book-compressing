@@ -1,0 +1,1069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive 3D Simulation Boilerplate</title>
+  
+  <!-- Required Stack (Pinned versions for zero console errors) -->
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f8fafc; color: #1e293b; }
+    
+    #canvas-container { position: absolute; inset: 0; z-index: 0; }
+
+    /* CSS2D Label Layer: Crucial trap prevention: container MUST be pointer-events: none */
+    #css2d-container {
+      position: absolute; inset: 0; pointer-events: none; z-index: 10;
+    }
+
+    /* 3D Label pill badges MUST be pointer-events: auto */
+    .label-badge {
+      pointer-events: auto;
+      background: rgba(255, 255, 255, 0.9);
+      color: #0f172a;
+      border: 1px solid rgba(148, 163, 184, 0.5);
+      border-radius: 9999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .label-badge:hover {
+      transform: translateY(-2px) scale(1.05);
+      border-color: #0284c7;
+      color: #0284c7;
+      box-shadow: 0 6px 16px rgba(2, 132, 199, 0.2);
+    }
+    .label-badge .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #0284c7;
+    }
+
+    /* Glassmorphism utility */
+    .glass-card {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(226, 232, 240, 0.8);
+      box-shadow: 0 8px 32px rgba(15, 23, 42, 0.06);
+    }
+
+    /* Custom range input styling */
+    input[type=range] {
+      accent-color: #0284c7;
+    }
+  </style>
+</head>
+<body class="relative w-full h-full select-none">
+
+  <!-- 3D Viewport container -->
+  <div id="canvas-container"></div>
+  <div id="css2d-container"></div>
+
+  <!-- Top-Left: Simulation Title & Overview -->
+  <header class="absolute top-4 left-4 z-20 max-w-sm pointer-events-auto">
+    <div class="glass-card rounded-2xl p-4 transition-all duration-300">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-100 text-sky-700">Physics Simulation</span>
+        <span class="text-xs text-slate-400">•</span>
+        <span class="text-xs text-slate-500 font-medium">Stage <span id="current-stage-num">1</span> of 5</span>
+      </div>
+      <h1 id="sim-title" class="text-lg font-bold text-slate-900 tracking-tight">Harmonic Oscillator</h1>
+      <p id="sim-subtitle" class="text-xs text-slate-600 mt-1 leading-relaxed">
+        Interactive physical exploration of restorative forces, elasticity, and oscillatory damping.
+      </p>
+      
+      <!-- Governing formula preview -->
+      <div class="mt-3 p-2 rounded-lg bg-slate-50 border border-slate-200/70 overflow-x-auto">
+        <div id="governing-formula" class="text-xs text-slate-800 text-center"></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Top-Right: Audio & Speech State Indicator -->
+  <aside class="absolute top-4 right-4 z-20 pointer-events-auto flex items-center gap-2">
+    <div id="audio-pill" class="glass-card px-3 py-1.5 rounded-full flex items-center gap-2 opacity-0 transition-opacity duration-300">
+      <span class="relative flex h-2.5 w-2.5">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+      </span>
+      <span id="audio-label" class="text-xs font-semibold text-slate-700">Narrating...</span>
+      <button id="btn-audio-stop" title="Mute speech" class="text-slate-400 hover:text-slate-600 ml-1 text-xs">✕</button>
+    </div>
+  </aside>
+
+  <!-- Right Sidebar: Live Parameters & Mathematical Readouts -->
+  <section class="absolute top-20 right-4 z-20 w-80 max-h-[calc(100vh-160px)] pointer-events-auto overflow-y-auto">
+    <div class="glass-card rounded-2xl p-4 space-y-4">
+      
+      <!-- Interactive Sliders -->
+      <div>
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center justify-between">
+          <span>Variables & Controls</span>
+          <button id="btn-reset" class="text-[11px] font-semibold text-sky-600 hover:text-sky-700">↻ Reset</button>
+        </h2>
+
+        <div class="space-y-3" id="controls-container">
+          <!-- Mass Control -->
+          <div>
+            <div class="flex justify-between text-xs font-medium text-slate-700 mb-1">
+              <span>Mass (m)</span>
+              <span id="val-mass" class="font-mono text-sky-600 font-bold">1.5 kg</span>
+            </div>
+            <input type="range" id="slider-mass" min="0.5" max="5.0" step="0.1" value="1.5" class="w-full h-1.5 bg-slate-200 rounded-lg cursor-pointer">
+          </div>
+
+          <!-- Spring Stiffness Control -->
+          <div>
+            <div class="flex justify-between text-xs font-medium text-slate-700 mb-1">
+              <span>Spring Constant (k)</span>
+              <span id="val-k" class="font-mono text-sky-600 font-bold">12.0 N/m</span>
+            </div>
+            <input type="range" id="slider-k" min="2.0" max="30.0" step="0.5" value="12.0" class="w-full h-1.5 bg-slate-200 rounded-lg cursor-pointer">
+          </div>
+
+          <!-- Damping Factor -->
+          <div>
+            <div class="flex justify-between text-xs font-medium text-slate-700 mb-1">
+              <span>Damping Coeff (c)</span>
+              <span id="val-damping" class="font-mono text-sky-600 font-bold">0.10 Ns/m</span>
+            </div>
+            <input type="range" id="slider-damping" min="0.0" max="1.0" step="0.02" value="0.10" class="w-full h-1.5 bg-slate-200 rounded-lg cursor-pointer">
+          </div>
+        </div>
+      </div>
+
+      <hr class="border-slate-200/60">
+
+      <!-- Real-time Mathematical Readout -->
+      <div>
+        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Real-time Readout</h2>
+        <div class="space-y-1.5 text-xs">
+          <div class="flex justify-between py-1 border-b border-slate-100">
+            <span class="text-slate-500">Natural Frequency (ω₀):</span>
+            <span id="readout-omega" class="font-mono font-bold text-slate-800">2.83 rad/s</span>
+          </div>
+          <div class="flex justify-between py-1 border-b border-slate-100">
+            <span class="text-slate-500">Oscillation Period (T):</span>
+            <span id="readout-period" class="font-mono font-bold text-slate-800">2.22 s</span>
+          </div>
+          <div class="flex justify-between py-1 border-b border-slate-100">
+            <span class="text-slate-500">Kinetic Energy (Eₖ):</span>
+            <span id="readout-ke" class="font-mono font-bold text-emerald-600">0.00 J</span>
+          </div>
+          <div class="flex justify-between py-1">
+            <span class="text-slate-500">Potential Energy (Eₚ):</span>
+            <span id="readout-pe" class="font-mono font-bold text-sky-600">0.00 J</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Simulation State Buttons -->
+      <div class="flex gap-2 pt-1">
+        <button id="btn-pause-sim" class="flex-1 py-1.5 text-xs font-semibold rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition">
+          ⏸ Pause Motion
+        </button>
+      </div>
+
+      <!-- Scientific Notes / Simplification Disclosures -->
+      <div class="text-[11px] text-slate-400 bg-slate-50/70 p-2.5 rounded-lg border border-slate-100 leading-normal">
+        <strong class="text-slate-600 font-semibold block mb-0.5">Model Notes:</strong>
+        Assumes linear Hooke's elasticity, negligible air resistance, and ideal 1D spring travel.
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom: Stage-by-Stage "Play Journey" Navigation Dock -->
+  <footer class="absolute bottom-5 left-1/2 -translate-x-1/2 z-20 pointer-events-auto w-[92%] max-w-xl">
+    <div class="glass-card rounded-2xl px-5 py-3 shadow-xl">
+      <div class="flex items-center justify-between gap-4">
+        
+        <!-- Controls: Prev / Play / Next -->
+        <div class="flex items-center gap-2">
+          <button id="btn-journey-prev" disabled class="p-2 rounded-xl text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition">
+            ◀
+          </button>
+          
+          <button id="btn-journey-play" class="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs shadow-md shadow-sky-600/20 transition active:scale-95">
+            <span id="btn-play-icon">▶</span>
+            <span id="btn-play-text">Play Journey</span>
+          </button>
+          
+          <button id="btn-journey-next" class="p-2 rounded-xl text-slate-600 hover:bg-slate-100 disabled:opacity-30 disabled:pointer-events-none transition">
+            ▶
+          </button>
+        </div>
+
+        <!-- Stage Info & Progress Dots -->
+        <div class="flex-1 text-center truncate px-2">
+          <div id="journey-stage-title" class="text-xs font-bold text-slate-800 truncate">
+            Stage 1: Equilibrium & Resting State
+          </div>
+          <div class="flex items-center justify-center gap-1.5 mt-1.5" id="journey-dots">
+            <!-- Dots injected by JS -->
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </footer>
+
+  <!-- Inspection Modal (Clicking 3D parts or badges opens this) -->
+  <div id="modal-backdrop" class="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div id="modal-card" class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 transform transition-all duration-200 scale-95 opacity-0">
+      <div class="flex items-start justify-between">
+        <div>
+          <span id="modal-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-sky-100 text-sky-700">Component</span>
+          <h2 id="modal-title" class="text-xl font-bold text-slate-900 mt-1">Oscillating Mass</h2>
+        </div>
+        <button id="btn-modal-close" class="text-slate-400 hover:text-slate-700 text-xl font-bold p-1">✕</button>
+      </div>
+
+      <!-- Component Math Equation -->
+      <div id="modal-equation-box" class="my-4 p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-center overflow-x-auto">
+        <div id="modal-formula" class="text-sm text-slate-800"></div>
+      </div>
+
+      <!-- Plain Language Explanation -->
+      <div class="space-y-3 text-sm text-slate-600 leading-relaxed">
+        <p id="modal-description">Detailed explanation of the component and its role in the simulation.</p>
+
+        <!-- Variable Breakdown Table -->
+        <div class="overflow-hidden rounded-xl border border-slate-200 mt-2">
+          <table class="w-full text-xs text-left">
+            <thead class="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+              <tr>
+                <th class="px-3 py-2">Symbol</th>
+                <th class="px-3 py-2">Quantity</th>
+                <th class="px-3 py-2">SI Unit</th>
+                <th class="px-3 py-2">Value</th>
+              </tr>
+            </thead>
+            <tbody id="modal-variables-tbody" class="divide-y divide-slate-100 font-mono text-slate-700">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="mt-6 flex items-center justify-between pt-3 border-t border-slate-100">
+        <button id="btn-modal-speak" class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/60 transition">
+          <span id="modal-speak-icon">🔊</span>
+          <span id="modal-speak-text">Read Aloud</span>
+        </button>
+        <button id="btn-modal-dismiss" class="px-4 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition">
+          Done
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCRIPT LOGIC -->
+  <script>
+    // ==========================================
+    // 1. DATA CONTRACTS: COMPONENTS & STAGES
+    // ==========================================
+    const COMPONENTS = {
+      mass: {
+        id: 'mass',
+        title: 'Oscillating Mass (m)',
+        badge: 'Inertial Body',
+        formula: String.raw`F_{net} = m \cdot a = -k x - c v`,
+        description: 'The solid body carrying inertial momentum in the oscillator. It resists sudden velocity changes according to Newton\'s second law.',
+        variables: [
+          { symbol: 'm', name: 'Mass', unit: 'kg', valKey: 'mass' },
+          { symbol: 'a', name: 'Acceleration', unit: 'm/s²', valKey: 'acc' },
+          { symbol: 'x', name: 'Displacement', unit: 'm', valKey: 'disp' }
+        ],
+        narration: 'The mass provides inertia, storing kinetic energy as it sweeps through the central equilibrium point.'
+      },
+      spring: {
+        id: 'spring',
+        title: 'Elastic Spring Coils (k)',
+        badge: 'Restoring Element',
+        formula: String.raw`F_{spring} = -k \cdot x`,
+        description: 'Governed by Hooke\'s law, the elastic spring produces a restorative force proportional to displacement and directed toward the equilibrium point.',
+        variables: [
+          { symbol: 'k', name: 'Spring Stiffness', unit: 'N/m', valKey: 'k' },
+          { symbol: 'x', name: 'Displacement', unit: 'm', valKey: 'disp' },
+          { symbol: 'E_p', name: 'Potential Energy', unit: 'J', valKey: 'pe' }
+        ],
+        narration: 'Hooke\'s law dictates that the spring force always points back toward the center, proportional to displacement.'
+      },
+      damper: {
+        id: 'damper',
+        title: 'Viscous Damper (c)',
+        badge: 'Energy Dissipation',
+        formula: String.raw`F_{damping} = -c \cdot v`,
+        description: 'The viscous damper dissipates mechanical energy into thermal energy over time, causing oscillations to gradually attenuate.',
+        variables: [
+          { symbol: 'c', name: 'Damping Coefficient', unit: 'N·s/m', valKey: 'c' },
+          { symbol: 'v', name: 'Velocity', unit: 'm/s', valKey: 'vel' }
+        ],
+        narration: 'The damper exerts a resistive force opposed to current velocity, continuously extracting kinetic energy from the system.'
+      }
+    };
+
+    const STAGES = [
+      {
+        title: 'Equilibrium & Rest State',
+        camera: { pos: [0, 4, 10], target: [0, 0, 0] },
+        highlight: 'mass',
+        narration: 'Welcome to the harmonic oscillator. At equilibrium, the spring is unstretched and net restorative force is zero.',
+        params: { mass: 1.5, k: 12.0, damping: 0.1 }
+      },
+      {
+        title: 'Spring Extension & Elastic Potential',
+        camera: { pos: [-2, 3, 8], target: [-1, 0, 0] },
+        highlight: 'spring',
+        narration: 'When pulled away from equilibrium, the spring stretches. Work is stored as elastic potential energy.',
+        params: { mass: 1.5, k: 16.0, damping: 0.05 }
+      },
+      {
+        title: 'Kinetic Momentum & Velocity Peak',
+        camera: { pos: [0, 2, 7], target: [0, 0, 0] },
+        highlight: 'mass',
+        narration: 'As the mass snaps through equilibrium, potential energy converts fully into kinetic energy, achieving maximum velocity.',
+        params: { mass: 2.0, k: 14.0, damping: 0.05 }
+      },
+      {
+        title: 'Viscous Damping & Exponential Decay',
+        camera: { pos: [3, 4, 9], target: [1, 0, 0] },
+        highlight: 'damper',
+        narration: 'The damper extracts energy on every cycle. Notice how amplitude gradually decays toward stillness.',
+        params: { mass: 1.5, k: 12.0, damping: 0.4 }
+      },
+      {
+        title: 'Free Interactive Exploration',
+        camera: { pos: [0, 5, 11], target: [0, 0, 0] },
+        highlight: null,
+        narration: 'You now control the system. Adjust the sliders on the right to observe underdamped, overdamped, or resonant behaviors.',
+        params: {}
+      }
+    ];
+
+    // ==========================================
+    // 2. SIMULATION PHYSICAL STATE
+    // ==========================================
+    const simState = {
+      mass: 1.5,
+      k: 12.0,
+      damping: 0.10,
+      disp: 2.0,     // current x
+      vel: 0.0,      // current v
+      acc: 0.0,      // current a
+      pe: 0.0,
+      ke: 0.0,
+      paused: false,
+      dt: 0.016
+    };
+
+    // ==========================================
+    // 3. THREE.JS & CSS2D RENDERER INITIALIZATION
+    // ==========================================
+    const container = document.getElementById('canvas-container');
+    const cssContainer = document.getElementById('css2d-container');
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf8fafc);
+    scene.fog = new THREE.Fog(0xf8fafc, 15, 35);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.set(0, 4, 10);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    container.appendChild(renderer.domElement);
+
+    // CSS2DRenderer setup (Crucial pointer-events handling)
+    const labelRenderer = new THREE.CSS2DRenderer();
+    labelRenderer.setSize(window.innerWidth, window.innerHeight);
+    labelRenderer.domElement.style.position = 'absolute';
+    labelRenderer.domElement.style.top = '0';
+    labelRenderer.domElement.style.pointerEvents = 'none';
+    cssContainer.appendChild(labelRenderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.maxPolarAngle = Math.PI / 2 - 0.05;
+    controls.minDistance = 3;
+    controls.maxDistance = 25;
+    controls.target.set(0, 0, 0);
+
+    // Lighting setup
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.85);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
+    dirLight.position.set(8, 12, 6);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 1024;
+    dirLight.shadow.mapSize.height = 1024;
+    dirLight.shadow.camera.near = 0.5;
+    dirLight.shadow.camera.far = 30;
+    dirLight.shadow.bias = -0.0005;
+    scene.add(dirLight);
+
+    const rimLight = new THREE.PointLight(0x38bdf8, 1.2, 20);
+    rimLight.position.set(-8, 5, -5);
+    scene.add(rimLight);
+
+    // Shadow receiver plane
+    const floorGeo = new THREE.PlaneGeometry(30, 30);
+    const floorMat = new THREE.ShadowMaterial({ opacity: 0.15 });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -1.2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Decorative grid floor
+    const gridHelper = new THREE.GridHelper(20, 20, 0x94a3b8, 0xe2e8f0);
+    gridHelper.position.y = -1.21;
+    scene.add(gridHelper);
+
+    // ==========================================
+    // 4. MESH CREATION & COMPONENT GROUPING
+    // ==========================================
+    const interactiveObjects = [];
+
+    // Base guide rail
+    const railGeo = new THREE.CylinderGeometry(0.06, 0.06, 12, 16);
+    const railMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.2 });
+    const rail = new THREE.Mesh(railGeo, railMat);
+    rail.rotation.z = Math.PI / 2;
+    rail.position.y = 0;
+    scene.add(rail);
+
+    // Left wall anchor
+    const wallGeo = new THREE.BoxGeometry(0.5, 2.5, 2);
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.3, roughness: 0.7 });
+    const wall = new THREE.Mesh(wallGeo, wallMat);
+    wall.position.set(-5, 0.4, 0);
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    scene.add(wall);
+
+    // Mass Mesh Group
+    const massGroup = new THREE.Group();
+    massGroup.userData.id = 'mass';
+
+    const massGeo = new THREE.BoxGeometry(1.6, 1.2, 1.2);
+    const massMat = new THREE.MeshPhysicalMaterial({
+      color: 0x0284c7,
+      metalness: 0.3,
+      roughness: 0.4,
+      clearcoat: 0.3,
+      flatShading: true
+    });
+    const massMesh = new THREE.Mesh(massGeo, massMat);
+    massMesh.castShadow = true;
+    massMesh.receiveShadow = true;
+    massMesh.userData.id = 'mass';
+    massGroup.add(massMesh);
+    scene.add(massGroup);
+    interactiveObjects.push(massMesh);
+
+    // Spring Mesh Representation
+    const springGroup = new THREE.Group();
+    springGroup.userData.id = 'spring';
+    const springMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.6, roughness: 0.3 });
+    
+    // Dynamic spring coil line
+    const springPointsCount = 100;
+    const springPositions = new Float32Array(springPointsCount * 3);
+    const springGeometry = new THREE.BufferGeometry();
+    springGeometry.setAttribute('position', new THREE.BufferAttribute(springPositions, 3));
+    const springLine = new THREE.Line(springGeometry, new THREE.LineBasicMaterial({ color: 0xd97706, linewidth: 3 }));
+    springLine.userData.id = 'spring';
+    springGroup.add(springLine);
+    scene.add(springGroup);
+    interactiveObjects.push(springLine);
+
+    // Damper Piston representation
+    const damperGroup = new THREE.Group();
+    damperGroup.userData.id = 'damper';
+    const damperBaseGeo = new THREE.CylinderGeometry(0.2, 0.2, 2.5, 16);
+    const damperBaseMat = new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.9, roughness: 0.2 });
+    const damperCylinder = new THREE.Mesh(damperBaseGeo, damperBaseMat);
+    damperCylinder.rotation.z = Math.PI / 2;
+    damperCylinder.position.set(-3.2, -0.6, 0);
+    damperCylinder.userData.id = 'damper';
+    damperGroup.add(damperCylinder);
+
+    const pistonGeo = new THREE.CylinderGeometry(0.08, 0.08, 2.8, 16);
+    const pistonMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.95, roughness: 0.1 });
+    const pistonRod = new THREE.Mesh(pistonGeo, pistonMat);
+    pistonRod.rotation.z = Math.PI / 2;
+    pistonRod.position.set(-1.8, -0.6, 0);
+    pistonRod.userData.id = 'damper';
+    damperGroup.add(pistonRod);
+    scene.add(damperGroup);
+    interactiveObjects.push(damperCylinder, pistonRod);
+
+    // ==========================================
+    // 5. CSS2D LABEL BADGES ATTACHMENT
+    // ==========================================
+    function createBadge(id, title) {
+      const div = document.createElement('div');
+      div.className = 'label-badge';
+      div.innerHTML = `<span class="dot"></span><span>${title}</span>`;
+      div.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openModal(id);
+      });
+      return new THREE.CSS2DObject(div);
+    }
+
+    const massLabel = createBadge('mass', 'Mass (m)');
+    massLabel.position.set(0, 1.1, 0);
+    massGroup.add(massLabel);
+
+    const springLabel = createBadge('spring', 'Spring (k)');
+    springLabel.position.set(-2.5, 0.8, 0);
+    scene.add(springLabel);
+
+    const damperLabel = createBadge('damper', 'Damper (c)');
+    damperLabel.position.set(-2.5, -1.0, 0);
+    scene.add(damperLabel);
+
+    // ==========================================
+    // 6. RAYCASTING: CLICK VS DRAG SAFETY
+    // ==========================================
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let pointerDownPos = { x: 0, y: 0 };
+
+    window.addEventListener('pointerdown', (e) => {
+      pointerDownPos.x = e.clientX;
+      pointerDownPos.y = e.clientY;
+    });
+
+    window.addEventListener('pointerup', (e) => {
+      // Avoid firing if the user was dragging the orbit camera
+      const deltaX = Math.abs(e.clientX - pointerDownPos.x);
+      const deltaY = Math.abs(e.clientY - pointerDownPos.y);
+      if (deltaX > 6 || deltaY > 6) return;
+
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(interactiveObjects, true);
+
+      if (intersects.length > 0) {
+        let target = intersects[0].object;
+        while (target && !target.userData.id && target.parent) {
+          target = target.parent;
+        }
+        if (target && target.userData.id) {
+          openModal(target.userData.id);
+        }
+      }
+    });
+
+    // Hover cursor feedback
+    window.addEventListener('pointermove', (e) => {
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(interactiveObjects, true);
+      document.body.style.cursor = intersects.length > 0 ? 'pointer' : 'default';
+    });
+
+    // ==========================================
+    // 7. KATEX MATH INITIALIZATION
+    // ==========================================
+    function renderFormula(latexString, targetElementId) {
+      const el = document.getElementById(targetElementId);
+      if (!el || typeof katex === 'undefined') return;
+      try {
+        katex.render(latexString, el, { displayMode: true, throwOnError: false });
+      } catch (err) {
+        el.textContent = latexString;
+      }
+    }
+
+    renderFormula(String.raw`m \frac{d^2x}{dt^2} + c \frac{dx}{dt} + k x = 0`, 'governing-formula');
+
+    // Auto-render any inline math symbols ($P_1$, variables, etc.) across the document
+    function renderPageMath(rootEl = document.body) {
+      if (typeof renderMathInElement !== 'undefined') {
+        renderMathInElement(rootEl, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '\\[', right: '\\]', display: true }
+          ],
+          throwOnError: false
+        });
+      }
+    }
+    renderPageMath();
+
+    // Auto-typeset dynamically inserted math symbols (e.g. $P_1$, $\omega$) in modals or cards
+    const pageMathObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes) {
+          if (node.nodeType === 1) {
+            renderPageMath(node);
+          }
+        }
+      }
+    });
+    pageMathObserver.observe(document.body, { childList: true, subtree: true });
+
+    // ==========================================
+    // 8. INSPECTION MODAL SYSTEM
+    // ==========================================
+    const modalBackdrop = document.getElementById('modal-backdrop');
+    const modalCard = document.getElementById('modal-card');
+    let activeModalComponent = null;
+
+    function openModal(componentId) {
+      const data = COMPONENTS[componentId];
+      if (!data) return;
+      activeModalComponent = data;
+
+      document.getElementById('modal-title').textContent = data.title;
+      document.getElementById('modal-badge').textContent = data.badge;
+      document.getElementById('modal-description').textContent = data.description;
+      renderFormula(data.formula, 'modal-formula');
+
+      // Populate variable table
+      const tbody = document.getElementById('modal-variables-tbody');
+      tbody.innerHTML = '';
+      data.variables.forEach(v => {
+        const val = getLiveValFormatted(v.valKey);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="px-3 py-1.5 font-bold text-sky-700">${v.symbol}</td>
+          <td class="px-3 py-1.5">${v.name}</td>
+          <td class="px-3 py-1.5 text-slate-400">${v.unit}</td>
+          <td class="px-3 py-1.5 font-bold text-slate-900">${val}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Render any mathematical symbols ($P_1$, variables, etc.) in modal content
+      if (typeof renderMathInElement !== 'undefined') {
+        renderMathInElement(modalCard, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false }
+          ],
+          throwOnError: false
+        });
+      }
+
+      modalBackdrop.classList.remove('hidden');
+      modalBackdrop.classList.add('flex');
+      requestAnimationFrame(() => {
+        modalCard.classList.remove('scale-95', 'opacity-0');
+        modalCard.classList.add('scale-100', 'opacity-100');
+      });
+    }
+
+    function closeModal() {
+      stopSpeech();
+      modalCard.classList.add('scale-95', 'opacity-0');
+      modalCard.classList.remove('scale-100', 'opacity-100');
+      setTimeout(() => {
+        modalBackdrop.classList.add('hidden');
+        modalBackdrop.classList.remove('flex');
+        activeModalComponent = null;
+      }, 180);
+    }
+
+    document.getElementById('btn-modal-close').addEventListener('click', closeModal);
+    document.getElementById('btn-modal-dismiss').addEventListener('click', closeModal);
+    modalBackdrop.addEventListener('click', (e) => {
+      if (e.target === modalBackdrop) closeModal();
+    });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModal();
+    });
+
+    function getLiveValFormatted(valKey) {
+      if (valKey === 'mass') return `${simState.mass.toFixed(1)} kg`;
+      if (valKey === 'k') return `${simState.k.toFixed(1)} N/m`;
+      if (valKey === 'c') return `${simState.damping.toFixed(2)} Ns/m`;
+      if (valKey === 'disp') return `${simState.disp.toFixed(2)} m`;
+      if (valKey === 'vel') return `${simState.vel.toFixed(2)} m/s`;
+      if (valKey === 'acc') return `${simState.acc.toFixed(2)} m/s²`;
+      if (valKey === 'pe') return `${simState.pe.toFixed(2)} J`;
+      return '--';
+    }
+
+    // ==========================================
+    // 9. WEB SPEECH API (Chunked Sentences)
+    // ==========================================
+    const audioPill = document.getElementById('audio-pill');
+    let isSpeaking = false;
+    let speechQueue = [];
+    let currentSpeechIndex = 0;
+    let onSpeechCompleteCallback = null;
+
+    function stopSpeech() {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      isSpeaking = false;
+      speechQueue = [];
+      audioPill.classList.add('opacity-0');
+      updateModalSpeakBtn(false);
+    }
+
+    function speakText(text, onComplete = null) {
+      if (!('speechSynthesis' in window)) {
+        if (onComplete) onComplete();
+        return;
+      }
+
+      stopSpeech();
+      onSpeechCompleteCallback = onComplete;
+
+      // Sentence chunking prevents Chrome 15s freeze
+      const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+      speechQueue = sentences.map(s => s.trim()).filter(s => s.length > 0);
+      currentSpeechIndex = 0;
+
+      if (speechQueue.length === 0) {
+        if (onComplete) onComplete();
+        return;
+      }
+
+      isSpeaking = true;
+      audioPill.classList.remove('opacity-0');
+      playNextSentence();
+    }
+
+    function playNextSentence() {
+      if (currentSpeechIndex >= speechQueue.length) {
+        stopSpeech();
+        if (onSpeechCompleteCallback) {
+          const cb = onSpeechCompleteCallback;
+          onSpeechCompleteCallback = null;
+          cb();
+        }
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(speechQueue[currentSpeechIndex]);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+
+      utterance.onend = () => {
+        currentSpeechIndex++;
+        playNextSentence();
+      };
+
+      utterance.onerror = () => {
+        stopSpeech();
+        if (onSpeechCompleteCallback) onSpeechCompleteCallback();
+      };
+
+      window.speechSynthesis.speak(utterance);
+    }
+
+    document.getElementById('btn-audio-stop').addEventListener('click', stopSpeech);
+
+    document.getElementById('btn-modal-speak').addEventListener('click', () => {
+      if (!activeModalComponent) return;
+      if (isSpeaking) {
+        stopSpeech();
+      } else {
+        updateModalSpeakBtn(true);
+        speakText(activeModalComponent.narration, () => {
+          updateModalSpeakBtn(false);
+        });
+      }
+    });
+
+    function updateModalSpeakBtn(playing) {
+      const btn = document.getElementById('btn-modal-speak');
+      const icon = document.getElementById('modal-speak-icon');
+      const txt = document.getElementById('modal-speak-text');
+      if (playing) {
+        btn.classList.add('bg-amber-100', 'text-amber-800');
+        btn.classList.remove('bg-emerald-50', 'text-emerald-700');
+        icon.textContent = '⏹';
+        txt.textContent = 'Stop Narration';
+      } else {
+        btn.classList.remove('bg-amber-100', 'text-amber-800');
+        btn.classList.add('bg-emerald-50', 'text-emerald-700');
+        icon.textContent = '🔊';
+        txt.textContent = 'Read Aloud';
+      }
+    }
+
+    // ==========================================
+    // 10. STAGE-BY-STAGE "PLAY JOURNEY"
+    // ==========================================
+    let currentStageIndex = 0;
+    let isJourneyPlaying = false;
+    let cameraTargetPos = new THREE.Vector3(0, 4, 10);
+    let orbitTargetPos = new THREE.Vector3(0, 0, 0);
+
+    const journeyBtn = document.getElementById('btn-journey-play');
+    const prevBtn = document.getElementById('btn-journey-prev');
+    const nextBtn = document.getElementById('btn-journey-next');
+    const dotsContainer = document.getElementById('journey-dots');
+
+    function initJourneyUI() {
+      dotsContainer.innerHTML = '';
+      STAGES.forEach((_, idx) => {
+        const dot = document.createElement('div');
+        dot.className = `w-2 h-2 rounded-full transition-all duration-300 ${idx === 0 ? 'bg-sky-600 w-4' : 'bg-slate-300'}`;
+        dot.id = `journey-dot-${idx}`;
+        dotsContainer.appendChild(dot);
+      });
+      loadStage(0, false);
+    }
+
+    function loadStage(index, autoNarrate = true) {
+      currentStageIndex = index;
+      const stage = STAGES[index];
+
+      document.getElementById('current-stage-num').textContent = index + 1;
+      document.getElementById('journey-stage-title').textContent = `Stage ${index + 1}: ${stage.title}`;
+
+      // Update progress dots
+      STAGES.forEach((_, idx) => {
+        const dot = document.getElementById(`journey-dot-${idx}`);
+        if (dot) {
+          dot.className = `h-2 rounded-full transition-all duration-300 ${idx === index ? 'bg-sky-600 w-4' : 'bg-slate-300 w-2'}`;
+        }
+      });
+
+      prevBtn.disabled = index === 0;
+      nextBtn.disabled = index === STAGES.length - 1;
+
+      // Animate camera target
+      if (stage.camera) {
+        cameraTargetPos.set(stage.camera.pos[0], stage.camera.pos[1], stage.camera.pos[2]);
+        orbitTargetPos.set(stage.camera.target[0], stage.camera.target[1], stage.camera.target[2]);
+      }
+
+      // Apply stage parameters if set
+      if (stage.params) {
+        if (stage.params.mass !== undefined) setMass(stage.params.mass);
+        if (stage.params.k !== undefined) setK(stage.params.k);
+        if (stage.params.damping !== undefined) setDamping(stage.params.damping);
+      }
+
+      // Reset impulse for dramatic demonstration
+      simState.disp = 2.4;
+      simState.vel = 0.0;
+
+      if (autoNarrate && isJourneyPlaying) {
+        speakText(stage.narration, () => {
+          if (isJourneyPlaying) {
+            setTimeout(() => {
+              if (currentStageIndex < STAGES.length - 1) {
+                loadStage(currentStageIndex + 1, true);
+              } else {
+                toggleJourney(false);
+              }
+            }, 1200);
+          }
+        });
+      }
+    }
+
+    function toggleJourney(start) {
+      isJourneyPlaying = start;
+      const icon = document.getElementById('btn-play-icon');
+      const text = document.getElementById('btn-play-text');
+
+      if (isJourneyPlaying) {
+        journeyBtn.classList.add('bg-amber-500', 'hover:bg-amber-400');
+        journeyBtn.classList.remove('bg-sky-600', 'hover:bg-sky-500');
+        icon.textContent = '⏸';
+        text.textContent = 'Pause Journey';
+        loadStage(currentStageIndex, true);
+      } else {
+        stopSpeech();
+        journeyBtn.classList.remove('bg-amber-500', 'hover:bg-amber-400');
+        journeyBtn.classList.add('bg-sky-600', 'hover:bg-sky-500');
+        icon.textContent = '▶';
+        text.textContent = 'Play Journey';
+      }
+    }
+
+    journeyBtn.addEventListener('click', () => toggleJourney(!isJourneyPlaying));
+    prevBtn.addEventListener('click', () => {
+      stopSpeech();
+      if (currentStageIndex > 0) loadStage(currentStageIndex - 1, false);
+    });
+    nextBtn.addEventListener('click', () => {
+      stopSpeech();
+      if (currentStageIndex < STAGES.length - 1) loadStage(currentStageIndex + 1, false);
+    });
+
+    // ==========================================
+    // 11. CONTROLS WIRING & LIVE READOUTS
+    // ==========================================
+    const sliderMass = document.getElementById('slider-mass');
+    const sliderK = document.getElementById('slider-k');
+    const sliderDamping = document.getElementById('slider-damping');
+
+    function setMass(v) {
+      simState.mass = parseFloat(v);
+      sliderMass.value = v;
+      document.getElementById('val-mass').textContent = `${simState.mass.toFixed(1)} kg`;
+      massMesh.scale.set(0.6 + simState.mass * 0.3, 0.6 + simState.mass * 0.3, 0.6 + simState.mass * 0.3);
+      updateEquations();
+    }
+    function setK(v) {
+      simState.k = parseFloat(v);
+      sliderK.value = v;
+      document.getElementById('val-k').textContent = `${simState.k.toFixed(1)} N/m`;
+      updateEquations();
+    }
+    function setDamping(v) {
+      simState.damping = parseFloat(v);
+      sliderDamping.value = v;
+      document.getElementById('val-damping').textContent = `${simState.damping.toFixed(2)} Ns/m`;
+      updateEquations();
+    }
+
+    sliderMass.addEventListener('input', (e) => setMass(e.target.value));
+    sliderK.addEventListener('input', (e) => setK(e.target.value));
+    sliderDamping.addEventListener('input', (e) => setDamping(e.target.value));
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      setMass(1.5);
+      setK(12.0);
+      setDamping(0.10);
+      simState.disp = 2.0;
+      simState.vel = 0.0;
+    });
+
+    const btnPause = document.getElementById('btn-pause-sim');
+    btnPause.addEventListener('click', () => {
+      simState.paused = !simState.paused;
+      btnPause.textContent = simState.paused ? '▶ Resume Motion' : '⏸ Pause Motion';
+    });
+
+    function updateEquations() {
+      const omega0 = Math.sqrt(simState.k / simState.mass);
+      const period = (2 * Math.PI) / omega0;
+
+      document.getElementById('readout-omega').textContent = `${omega0.toFixed(2)} rad/s`;
+      document.getElementById('readout-period').textContent = `${period.toFixed(2)} s`;
+    }
+
+    // ==========================================
+    // 12. ANIMATION LOOP & PHYSICS INTEGRATION
+    // ==========================================
+    let lastTime = performance.now();
+
+    function updateSpringCoil(startX, endX) {
+      const positions = springLine.geometry.attributes.position.array;
+      const count = positions.length / 3;
+      const length = endX - startX;
+      
+      for (let i = 0; i < count; i++) {
+        const u = i / (count - 1);
+        const x = startX + u * length;
+        // Helical coil sine wave along y and z
+        const angle = u * Math.PI * 2 * 14;
+        const radius = (u > 0.05 && u < 0.95) ? 0.35 : 0.05;
+        const y = Math.sin(angle) * radius;
+        const z = Math.cos(angle) * radius;
+
+        positions[i * 3] = x;
+        positions[i * 3 + 1] = y;
+        positions[i * 3 + 2] = z;
+      }
+      springLine.geometry.attributes.position.needsUpdate = true;
+    }
+
+    function animate(currentTime) {
+      requestAnimationFrame(animate);
+
+      // Safe delta calculation with clamp
+      const dtMs = currentTime - lastTime;
+      lastTime = currentTime;
+      const dt = Math.min(dtMs / 1000, 0.05);
+
+      if (!simState.paused) {
+        // Physical Integration: a = (-k*x - c*v) / m
+        const springForce = -simState.k * simState.disp;
+        const dampForce = -simState.damping * simState.vel;
+        simState.acc = (springForce + dampForce) / simState.mass;
+
+        // Semi-implicit Euler integration
+        simState.vel += simState.acc * dt;
+        simState.disp += simState.vel * dt;
+
+        // Update Energy
+        simState.pe = 0.5 * simState.k * Math.pow(simState.disp, 2);
+        simState.ke = 0.5 * simState.mass * Math.pow(simState.vel, 2);
+      }
+
+      // Update 3D meshes position
+      massGroup.position.x = simState.disp;
+      pistonRod.position.x = -1.8 + simState.disp * 0.5;
+
+      // Update spring coil line
+      updateSpringCoil(-5.0, simState.disp - 0.8);
+      springLabel.position.x = (-5.0 + simState.disp) / 2;
+
+      // Update Energy Readouts in HUD
+      document.getElementById('readout-pe').textContent = `${simState.pe.toFixed(2)} J`;
+      document.getElementById('readout-ke').textContent = `${simState.ke.toFixed(2)} J`;
+
+      // Smooth Camera LERP for Stage Transitions
+      camera.position.lerp(cameraTargetPos, 0.04);
+      controls.target.lerp(orbitTargetPos, 0.04);
+      controls.update();
+
+      // Render both WebGL and CSS2D overlays
+      renderer.render(scene, camera);
+      labelRenderer.render(scene, camera);
+    }
+
+    // ==========================================
+    // 13. RESIZE SYNCHRONIZATION & INIT
+    // ==========================================
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      labelRenderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    initJourneyUI();
+    updateEquations();
+    animate(performance.now());
+  </script>
+</body>
+</html>
